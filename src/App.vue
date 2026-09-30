@@ -24,6 +24,7 @@ import { ref, onMounted } from "vue";
 import TaskSelect from "./components/TaskSelect.vue";
 import TeamBuilder from "./components/TeamBuilder.vue";
 import WhatsappShare from "./components/WhatsappShare.vue";
+import { fetchMissions, fetchRoles } from "./lib/missions.js";
 
 const task = ref("");
 const people = ref([]);
@@ -43,13 +44,13 @@ function load(name) {
 
 onMounted(async () => {
   try {
-    const [p, t, r, tpl] = await Promise.all(["people", "tasks", "roles", "template"].map(load));
+    const [p, t, r, tpl] = await Promise.all([load("people"), fetchMissions(), fetchRoles(), load("template")]);
     people.value = p;
     tasks.value = t;
     roles.value = r;
     template.value = tpl;
   } catch (err) {
-    error.value = `שגיאה בטעינת הנתונים: ${err.message}. יש להריץ את האתר משרת (ולא לפתוח את הקובץ ישירות).`;
+    error.value = `שגיאה בטעינת הנתונים: ${err.message}. יש להריץ את האתר משרת (ולא לפתוח את הקובץ ישירות) ולוודא חיבור לאינטרנט.`;
   }
 });
 </script>
