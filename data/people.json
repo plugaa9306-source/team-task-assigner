@@ -1,0 +1,10 @@
+[
+  { "id": "7654321", "firstName": "ישראל", "lastName": "ישראלי" },
+  { "id": "1234567", "firstName": "אברהם", "lastName": "כהן" },
+  { "id": "2345678", "firstName": "משה", "lastName": "לוי" },
+  { "id": "3456789", "firstName": "דוד", "lastName": "מזרחי" },
+  { "id": "4567890", "firstName": "יוסף", "lastName": "פרץ" },
+  { "id": "5678901", "firstName": "נועם", "lastName": "ביטון" },
+  { "id": "6789012", "firstName": "איתי", "lastName": "אזולאי" },
+  { "id": "8901234", "firstName": "רון", "lastName": "שפירא" }
+]
