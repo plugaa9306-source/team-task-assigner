@@ -6,17 +6,17 @@
 
 **Architecture:** A Vite-scaffolded Vue 3 SPA (`<script setup>`, plain JS, no router/Pinia). `App.vue` is the single state owner (task, people, roles, template, members, allComplete) and passes data down via props; children emit events up (`update:modelValue`-style), mirroring today's CustomEvent-based wiring. `data/*.json` moves to `public/data/*.json` and is still fetched at runtime, unchanged from today's behavior.
 
-**Tech Stack:** Vite (latest), Vue 3 (latest), `@vitejs/plugin-vue` (latest). No TypeScript, no Pinia, no router, no test framework (none exists today).
+**Tech Stack:** Vite (latest), Vue 3 (latest), `@vitejs/plugin-vue` (latest), Vitest + `@vue/test-utils` + `jsdom` for unit tests.
 
 **Spec:** `docs/superpowers/specs/2026-09-30-vite-vue-migration-design.md`
 
 ## Global Constraints
 
-- Plain JavaScript `<script setup>` SFCs only — no TypeScript.
+- Plain JavaScript `<script setup>` SFCs only — no TypeScript. `.vue` files are NOT split into separate `.vue`/`.js`/`.css` files — `<script setup>` and `<style scoped>` stay inline in each SFC (this was raised and then explicitly withdrawn mid-migration).
 - State sharing via props + emits only — no Pinia.
 - `public/data/*.json` is fetched at runtime with `fetch('data/<name>.json')`, exactly like today — never bundled/imported at build time.
-- No automated test framework is introduced. Every task's verification is a manual check via `npm run dev` (and, where noted, `npm run build`).
-- No git — do not run any `git` command as part of this plan.
+- **Every** `.js` file under `src/` (except `src/main.js`) and every `.vue` component gets a colocated `*.spec.js` unit test file (Vitest + `@vue/test-utils`), written and passing *before* that file's manual browser verification step. This supersedes an earlier "no test framework" decision — added mid-migration at the human partner's explicit request; see Task 4.5 for the retrofit onto Tasks 1-4's already-completed work.
+- Local git only (repo-local identity, branch `vite-vue-migration`) — this was added mid-migration purely so subagent-driven-development can track its work; nothing is pushed to any remote.
 - The old vanilla-JS implementation (`app.js`, `components/`, the old `style.css`, the old root `data/` folder) stays in place, untouched and unreferenced by the new app, until the final cleanup task deletes it.
 - Visual design must not change: every CSS rule ported must produce the same rendered result as today.
 
@@ -831,9 +831,9 @@ onMounted(async () => {
 Run: `npm run dev`, open the printed URL.
 
 Expected, in order:
-1. Typing a partial name (e.g. "משה") shows a filtered dropdown of matching people; clicking one fills the row, moves focus to the role select, and the `<pre>` JSON below shows the picked `id`/`firstName`/`lastName`.
+1. Typing a partial name (e.g. "משה") shows a filtered dropdown of matching people; clicking one fills the row (the name stays visibly filled after focus moves to the role select — this is the nextTick fix's job), moves focus to the role select, and the `<pre>` JSON below shows the picked `id`/`firstName`/`lastName`.
 2. Typing something that matches nobody shows no dropdown; clicking away (blur) clears the name field back to empty.
-3. Picking a person then editing the text without re-picking, then blurring, reverts the field to the originally picked name.
+3. Picking a person then editing the text without re-picking, then blurring: **the field reverts to empty, not to the originally picked name** — a pick is invalidated on the very first keystroke after it (same as the already-shipped vanilla behavior; an earlier version of this checklist incorrectly said it should revert to the originally picked name).
 4. Opening the role `<select>` shows all 4 roles regardless of the current selection.
 5. Leaving the name or role empty after visiting it shows the red outline + "יש למלא שם/תפקיד" hint below the row.
 
@@ -841,10 +841,212 @@ Stop the dev server when confirmed. (This harness is replaced by `TeamBuilder` i
 
 ---
 
+### Task 4.5: Vitest setup + retrofit unit tests for Tasks 1-4
+
+**Files:**
+- Modify: `package.json` (add `vitest`, `@vue/test-utils`, `jsdom` as dev dependencies, add a `"test": "vitest run"` script)
+- Modify: `vite.config.js` (add the Vitest `test` config block)
+- Create: `src/lib/person.spec.js`
+- Create: `src/components/TaskSelect.spec.js`
+- Create: `src/components/PersonRow.spec.js`
+
+**Interfaces:**
+- Consumes: `NO_ID`/`personKey` (Task 2), `TaskSelect.vue`'s prop/emit contract (Task 3), `PersonRow.vue`'s prop/emit/expose contract as fixed in Task 4's fix round (Task 4).
+- Produces: the `npm test` command, working and green — every later task (5, 6, 7, 8) runs it as part of its own verification.
+
+This task exists because the human partner asked for full unit-test coverage
+*after* Tasks 1-4 were already built without it. From here on, every task
+that creates or modifies a `.js`/`.vue` file writes its test file before its
+browser-verification step (see Tasks 5 and 6 below) — this task only closes
+the gap for what's already done.
+
+- [ ] **Step 1: Add Vitest and its dependencies**
+
+Run: `npm install -D vitest @vue/test-utils jsdom`
+
+- [ ] **Step 2: Add the `test` script to `package.json`**
+
+Add `"test": "vitest run"` to the `"scripts"` object (alongside `dev`/`build`/`preview`).
+
+- [ ] **Step 3: Add the Vitest config block to `vite.config.js`**
+
+```js
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
+
+export default defineConfig({
+  plugins: [vue()],
+  test: {
+    environment: "jsdom",
+    globals: false,
+  },
+});
+```
+
+- [ ] **Step 4: Create `src/lib/person.spec.js`**
+
+```js
+import { describe, it, expect } from "vitest";
+import { NO_ID, personKey } from "./person.js";
+
+describe("personKey", () => {
+  it("keys by id when a real id is present", () => {
+    expect(personKey({ id: "123", firstName: "א", lastName: "ב" })).toBe("id:123");
+  });
+
+  it("keys by normalized full name when id is NO_ID", () => {
+    expect(personKey({ id: NO_ID, firstName: " משה ", lastName: " לוי " })).toBe("name:משה|לוי");
+  });
+
+  it("treats an empty id the same as NO_ID (falls back to name)", () => {
+    expect(personKey({ id: "", firstName: "דוד", lastName: "כהן" })).toBe("name:דוד|כהן");
+  });
+
+  it("lowercases and trims both name parts independently", () => {
+    const a = personKey({ id: NO_ID, firstName: "ABC", lastName: "XYZ" });
+    const b = personKey({ id: NO_ID, firstName: "abc", lastName: "xyz" });
+    expect(a).toBe(b);
+  });
+});
+```
+
+- [ ] **Step 5: Run the person.js tests and verify they pass**
+
+Run: `npx vitest run src/lib/person.spec.js`
+
+Expected: 4 passed, 0 failed.
+
+- [ ] **Step 6: Create `src/components/TaskSelect.spec.js`**
+
+```js
+import { describe, it, expect } from "vitest";
+import { mount } from "@vue/test-utils";
+import TaskSelect from "./TaskSelect.vue";
+
+describe("TaskSelect", () => {
+  const tasks = ["משימה א", "משימה ב"];
+
+  it("renders the placeholder option plus one option per task", () => {
+    const wrapper = mount(TaskSelect, { props: { tasks, modelValue: "" } });
+    const options = wrapper.findAll("option");
+    expect(options).toHaveLength(3);
+    expect(options[0].text()).toBe("בחרו משימה…");
+    expect(options[0].attributes("value")).toBe("");
+    expect(options[1].text()).toBe("משימה א");
+    expect(options[2].text()).toBe("משימה ב");
+  });
+
+  it("reflects modelValue as the select's current value", () => {
+    const wrapper = mount(TaskSelect, { props: { tasks, modelValue: "משימה ב" } });
+    expect(wrapper.find("select").element.value).toBe("משימה ב");
+  });
+
+  it("emits update:modelValue with the selected value on change", async () => {
+    const wrapper = mount(TaskSelect, { props: { tasks, modelValue: "" } });
+    await wrapper.find("select").setValue("משימה א");
+    expect(wrapper.emitted("update:modelValue")).toEqual([["משימה א"]]);
+  });
+});
+```
+
+- [ ] **Step 7: Run the TaskSelect tests and verify they pass**
+
+Run: `npx vitest run src/components/TaskSelect.spec.js`
+
+Expected: 3 passed, 0 failed.
+
+- [ ] **Step 8: Create `src/components/PersonRow.spec.js`**
+
+```js
+import { describe, it, expect } from "vitest";
+import { mount } from "@vue/test-utils";
+import PersonRow from "./PersonRow.vue";
+import { NO_ID } from "../lib/person.js";
+
+const people = [
+  { id: "1", firstName: "משה", lastName: "לוי" },
+  { id: "2", firstName: "דוד", lastName: "כהן" },
+];
+const roles = ["נהג", "קשר"];
+const emptyValue = () => ({ firstName: "", lastName: "", id: NO_ID, role: "" });
+
+describe("PersonRow", () => {
+  it("filters people by the typed query, excluding taken keys", async () => {
+    const wrapper = mount(PersonRow, {
+      props: { people, roles, taken: new Set(["id:2"]), canRemove: true, locked: false, modelValue: emptyValue() },
+    });
+    await wrapper.find(".pr-name").setValue("");
+    await wrapper.find(".pr-name").setValue("");
+    await wrapper.find(".pr-name").element.dispatchEvent(new Event("input"));
+    await wrapper.find(".pr-name").setValue("מ");
+    await wrapper.find(".pr-name").trigger("input");
+    const options = wrapper.findAll(".pr-res-name");
+    expect(options.map((o) => o.text())).toEqual(["משה לוי"]);
+  });
+
+  it("emits update:modelValue with the picked person when a result is clicked", async () => {
+    const wrapper = mount(PersonRow, {
+      props: { people, roles, taken: new Set(), canRemove: true, locked: false, modelValue: emptyValue() },
+    });
+    await wrapper.find(".pr-name").setValue("דוד");
+    await wrapper.find(".pr-name").trigger("input");
+    await wrapper.find("li[role=option]").trigger("click");
+    const emitted = wrapper.emitted("update:modelValue");
+    expect(emitted[emitted.length - 1][0]).toMatchObject({ firstName: "דוד", lastName: "כהן", id: "2" });
+  });
+
+  it("discards unconfirmed typed text on blur", async () => {
+    const wrapper = mount(PersonRow, {
+      props: { people, roles, taken: new Set(), canRemove: true, locked: false, modelValue: emptyValue() },
+    });
+    const input = wrapper.find(".pr-name");
+    await input.setValue("זzzנונשוש");
+    await input.trigger("input");
+    await input.trigger("blur");
+    expect(input.element.value).toBe("");
+  });
+
+  it("shows the required hint only after a field is touched and left empty", async () => {
+    const wrapper = mount(PersonRow, {
+      props: { people, roles, taken: new Set(), canRemove: true, locked: false, modelValue: emptyValue() },
+    });
+    expect(wrapper.find(".pr-hint").isVisible()).toBe(false);
+    await wrapper.find(".pr-name").trigger("blur");
+    expect(wrapper.find(".pr-hint").text()).toBe("יש למלא שם");
+  });
+
+  it("disables the name input, role select, and remove button when locked", () => {
+    const wrapper = mount(PersonRow, {
+      props: { people, roles, taken: new Set(), canRemove: true, locked: true, modelValue: emptyValue() },
+    });
+    expect(wrapper.find(".pr-name").element.disabled).toBe(true);
+    expect(wrapper.find(".pr-role").element.disabled).toBe(true);
+    expect(wrapper.find(".pr-remove").element.disabled).toBe(true);
+  });
+});
+```
+
+If any test above doesn't compile or pass because of a mismatch between this brief's assumed markup/behavior and `PersonRow.vue`'s actual implementation from Task 4 (e.g. exact class names, how the dropdown opens in JSDOM without real `getBoundingClientRect` layout), adjust the test to exercise the same behavior through whatever selector/interaction actually works against the real component — the intent (filter+taken-exclusion, pick emits the right value, unconfirmed text discarded on blur, hint timing, locked disables all three controls) is what must be preserved, not this exact test code. Note any such adjustment in your report.
+
+- [ ] **Step 9: Run the PersonRow tests and verify they pass**
+
+Run: `npx vitest run src/components/PersonRow.spec.js`
+
+Expected: all tests passed, 0 failed. If JSDOM's lack of real layout breaks the positioning-dependent parts of `PersonRow`, it's fine for those specific interactions to need adjustment (per Step 8's note) — the point is covering the reactive/logic behavior, not pixel positioning.
+
+- [ ] **Step 10: Run the full test suite**
+
+Run: `npm test`
+
+Expected: all suites (person, TaskSelect, PersonRow) pass, 0 failed, clean output (no unexpected warnings).
+
+---
+
 ### Task 5: `TeamBuilder.vue`
 
 **Files:**
 - Create: `src/components/TeamBuilder.vue`
+- Create: `src/components/TeamBuilder.spec.js`
 - Modify: `src/App.vue` (replaces the Task 4 harness)
 
 **Interfaces:**
@@ -1059,7 +1261,72 @@ onMounted(async () => {
 </script>
 ```
 
-- [ ] **Step 3: Verify in the browser**
+- [ ] **Step 3: Create `src/components/TeamBuilder.spec.js` and run it before any browser check**
+
+```js
+import { describe, it, expect, vi } from "vitest";
+import { mount } from "@vue/test-utils";
+import TeamBuilder from "./TeamBuilder.vue";
+
+const people = [
+  { id: "1", firstName: "משה", lastName: "לוי" },
+  { id: "2", firstName: "דוד", lastName: "כהן" },
+];
+const roles = ["נהג", "קשר"];
+
+async function fillRow(wrapper, rowIndex, person, role) {
+  const row = wrapper.findAll(".person-row")[rowIndex];
+  await row.find(".pr-name").setValue(person.firstName);
+  await row.find(".pr-name").trigger("input");
+  await row.find("li[role=option]").trigger("click");
+  await row.find(".pr-role").setValue(role);
+  await row.find(".pr-role").trigger("change");
+}
+
+describe("TeamBuilder", () => {
+  it("starts with exactly one empty row and emits allComplete: false", () => {
+    const wrapper = mount(TeamBuilder, { props: { people, roles, locked: false } });
+    expect(wrapper.findAll(".person-row")).toHaveLength(1);
+    expect(wrapper.emitted("update:allComplete").at(-1)).toEqual([false]);
+  });
+
+  it("propagates locked to every row and disables the add button", () => {
+    const wrapper = mount(TeamBuilder, { props: { people, roles, locked: true } });
+    expect(wrapper.find(".tb-add").element.disabled).toBe(true);
+    expect(wrapper.find(".pr-name").element.disabled).toBe(true);
+  });
+
+  it("adds a row on '+' click, up to needing both rows complete for allComplete", async () => {
+    const wrapper = mount(TeamBuilder, { props: { people, roles, locked: false } });
+    await wrapper.find(".tb-add").trigger("click");
+    expect(wrapper.findAll(".person-row")).toHaveLength(2);
+  });
+
+  it("excludes an already-picked person from other rows' matches (taken set)", async () => {
+    const wrapper = mount(TeamBuilder, { props: { people, roles, locked: false } });
+    await fillRow(wrapper, 0, people[0], roles[0]);
+    await wrapper.find(".tb-add").trigger("click");
+    const secondRow = wrapper.findAll(".person-row")[1];
+    await secondRow.find(".pr-name").setValue("מ");
+    await secondRow.find(".pr-name").trigger("input");
+    expect(secondRow.findAll(".pr-res-name")).toHaveLength(0);
+  });
+
+  it("emits allComplete: true only once every row has both a name and a role", async () => {
+    const wrapper = mount(TeamBuilder, { props: { people, roles, locked: false } });
+    await fillRow(wrapper, 0, people[0], roles[0]);
+    expect(wrapper.emitted("update:allComplete").at(-1)).toEqual([true]);
+  });
+});
+```
+
+If `fillRow`'s exact DOM traversal doesn't match `PersonRow.vue`'s real rendered markup, adjust the selectors to whatever actually works against the real component — the behavior each test verifies (one initial row, locked propagation, add-row, taken-set exclusion across rows, `allComplete` gating) is what must be preserved. Note any adjustment in your report.
+
+Run: `npx vitest run src/components/TeamBuilder.spec.js`
+
+Expected: all tests passed, 0 failed.
+
+- [ ] **Step 4: Verify in the browser**
 
 Run: `npm run dev`, open the printed URL.
 
@@ -1078,6 +1345,7 @@ Stop the dev server when confirmed.
 
 **Files:**
 - Create: `src/components/WhatsappShare.vue`
+- Create: `src/components/WhatsappShare.spec.js`
 - Modify: `src/App.vue` (final version — debug scaffolding removed)
 
 **Interfaces:**
@@ -1300,7 +1568,60 @@ onMounted(async () => {
 </script>
 ```
 
-- [ ] **Step 3: Verify in the browser**
+- [ ] **Step 3: Create `src/components/WhatsappShare.spec.js` and run it before the browser check**
+
+```js
+import { describe, it, expect, vi } from "vitest";
+import { mount } from "@vue/test-utils";
+import WhatsappShare from "./WhatsappShare.vue";
+
+const template = {
+  header: "📌 *דף משימה: {TASK}*",
+  subheader: "👥 *צוות יוצא:*",
+  item_format: "• [{ID}] *{FIRST_NAME} {LAST_NAME}* - {ROLE}",
+  footer: "משוגר ממחולל המשימות 🚀",
+};
+const members = [{ firstName: "משה", lastName: "לוי", id: "1", role: "נהג" }];
+
+describe("WhatsappShare", () => {
+  it("shows the not-ready placeholder and disables both buttons when task is empty", () => {
+    const wrapper = mount(WhatsappShare, { props: { task: "", members: [], allComplete: false, template } });
+    expect(wrapper.find(".ws-text").text()).toBe("בחרו משימה והוסיפו לפחות אדם אחד עם שם ותפקיד.");
+    expect(wrapper.find(".ws-share").element.disabled).toBe(true);
+    expect(wrapper.find(".ws-copy").element.disabled).toBe(true);
+  });
+
+  it("builds the message and enables both buttons once task+members+allComplete are all satisfied", () => {
+    const wrapper = mount(WhatsappShare, { props: { task: "אבטחת היקף", members, allComplete: true, template } });
+    const text = wrapper.find(".ws-text").text();
+    expect(text).toContain("דף משימה: אבטחת היקף");
+    expect(text).toContain("[1] משה לוי - נהג");
+    expect(wrapper.find(".ws-share").element.disabled).toBe(false);
+    expect(wrapper.find(".ws-copy").element.disabled).toBe(false);
+  });
+
+  it("stays not-ready if allComplete is false even with members present", () => {
+    const wrapper = mount(WhatsappShare, { props: { task: "אבטחת היקף", members, allComplete: false, template } });
+    expect(wrapper.find(".ws-share").element.disabled).toBe(true);
+  });
+
+  it("copies the built message and shows a status message on success", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const wrapper = mount(WhatsappShare, { props: { task: "אבטחת היקף", members, allComplete: true, template } });
+    await wrapper.find(".ws-copy").trigger("click");
+    await Promise.resolve();
+    expect(writeText).toHaveBeenCalled();
+    expect(wrapper.find(".ws-status").text()).toBe("ההודעה הועתקה");
+  });
+});
+```
+
+Run: `npx vitest run src/components/WhatsappShare.spec.js`
+
+Expected: all tests passed, 0 failed.
+
+- [ ] **Step 4: Verify in the browser**
 
 Run: `npm run dev`, open the printed URL.
 
@@ -1314,7 +1635,13 @@ Expected: pick a mission, add a complete person (name + role) — the message pr
 
 **Interfaces:** none — this task only exercises the app built in Tasks 1–6.
 
-- [ ] **Step 1: Run the dev server and verify every scenario from the spec**
+- [ ] **Step 1: Run the full unit test suite**
+
+Run: `npm test`
+
+Expected: every `*.spec.js` file (person, TaskSelect, PersonRow, TeamBuilder, WhatsappShare) passes, 0 failed, clean output. This must be green before proceeding to the manual browser pass below — if anything fails, fix it first.
+
+- [ ] **Step 2: Run the dev server and verify every scenario from the spec**
 
 Run: `npm run dev`, open the printed URL, and check each of the following (all were already validated in the vanilla-JS version and must behave identically here):
 
@@ -1328,7 +1655,7 @@ Run: `npm run dev`, open the printed URL, and check each of the following (all w
 
 Expected: all seven pass. If any fails, fix the relevant component before moving on — do not proceed to Task 8 with a known regression.
 
-- [ ] **Step 2: Run a production build and preview it**
+- [ ] **Step 3: Run a production build and preview it**
 
 Run: `npm run build`, then `npm run preview`, open the printed URL.
 
@@ -1386,6 +1713,6 @@ Vite + Vue 3.
 
 - [ ] **Step 3: Final full verification**
 
-Run: `npm run dev`, open the printed URL, and repeat the Task 7 Step 1 checklist (all 7 scenarios) once more to confirm nothing broke from deleting the old files.
+Run: `npm test` (all specs still green — deleting the old vanilla-JS files must not affect any test), then `npm run dev`, open the printed URL, and repeat the Task 7 Step 2 checklist (all 7 scenarios) once more to confirm nothing broke from deleting the old files.
 
-Expected: all 7 scenarios still pass, with the old vanilla-JS files gone and only the Vite + Vue app present.
+Expected: all unit tests pass and all 7 manual scenarios still pass, with the old vanilla-JS files gone and only the Vite + Vue app present.

@@ -28,9 +28,14 @@ polish pass).
 - **Styling:** all current CSS is preserved as-is, just relocated — global
   tokens/reset/layout into `src/style.css`, per-component CSS into that
   component's `<style scoped>` block. No visual changes.
-- **Testing:** no automated test framework introduced (none exists today).
-  Verification is manual, re-running the same scenarios already validated
-  during this project's earlier vanilla-JS work.
+- **Testing:** Vitest is added (this decision supersedes an earlier "no test
+  framework" choice — revised mid-migration at the human partner's explicit
+  request). Every JS/Vue source file gets its own colocated unit test file,
+  including the `.vue` components (via `@vue/test-utils`), written and
+  passing *before* any manual browser verification of that file. Automated
+  tests are the first gate; the manual browser scenarios in this spec's
+  Testing section remain as a second, end-to-end gate on top of them — they
+  are not replaced.
 
 ## Target project structure
 
@@ -38,7 +43,7 @@ polish pass).
 team-task-assigner/
 ├── index.html                  # Vite entry (new, replaces old static index.html)
 ├── package.json                # new
-├── vite.config.js              # new
+├── vite.config.js              # new (includes the Vitest `test` block)
 ├── public/
 │   └── data/
 │       ├── people.json
@@ -50,12 +55,17 @@ team-task-assigner/
 │   ├── style.css                # global tokens/reset/layout (ported from current style.css)
 │   ├── App.vue
 │   ├── lib/
-│   │   └── person.js            # NO_ID, personKey() — ported unchanged
+│   │   ├── person.js            # NO_ID, personKey() — ported unchanged
+│   │   └── person.spec.js       # unit tests for person.js
 │   └── components/
 │       ├── TaskSelect.vue
+│       ├── TaskSelect.spec.js
 │       ├── TeamBuilder.vue
+│       ├── TeamBuilder.spec.js
 │       ├── PersonRow.vue
-│       └── WhatsappShare.vue
+│       ├── PersonRow.spec.js
+│       ├── WhatsappShare.vue
+│       └── WhatsappShare.spec.js
 └── README.md                    # rewritten with npm-based instructions
 ```
 
@@ -223,11 +233,53 @@ introduced by this migration.
 - `README.md` rewritten to describe these commands and drop the old
   `python3 -m http.server` instructions.
 
+## Unit testing (Vitest)
+
+Added mid-migration, superseding the original "no test framework" decision.
+
+- **Framework:** Vitest (`vitest`) + `@vue/test-utils` for mounting
+  components, `jsdom` as the DOM environment.
+- **Config:** the `test` block lives in `vite.config.js` (Vitest reads Vite's
+  config directly — no separate `vitest.config.js`), `environment: "jsdom"`,
+  `globals: false` (tests import `describe`/`it`/`expect` explicitly from
+  `vitest`, no implicit globals).
+- **Convention:** every `.js` file under `src/` (excluding `main.js`, which
+  is a 3-line bootstrap with nothing to unit test) and every `.vue` file gets
+  one colocated `*.spec.js` sibling (`Foo.vue` → `Foo.spec.js`,
+  `person.js` → `person.spec.js`).
+- **Ordering:** for every task that creates or changes a source file, the
+  matching test file is written and passing (`npm test` / `npx vitest run`)
+  *before* that file's manual browser verification step. Automated tests
+  catch logic regressions fast; the browser pass still exists as a second,
+  end-to-end gate — neither replaces the other.
+- **Scope per component:**
+  - `person.js`: `personKey()` id-based and name-based branches, `NO_ID`
+    sentinel behavior.
+  - `TaskSelect.vue`: renders the placeholder + one `<option>` per task;
+    selecting an option emits `update:modelValue` with the right value.
+  - `PersonRow.vue`: search/filter/taken-exclusion logic, pick-only-from-list
+    enforcement (typed-but-unconfirmed text discarded on blur), validity
+    hint computation, locked/disabled propagation. Positioning
+    (`getBoundingClientRect`-based) and real focus/blur timing are
+    JSDOM-limited — cover the reactive logic paths in unit tests and leave
+    true layout/focus-order verification to the browser pass.
+  - `TeamBuilder.vue`: `allComplete`/`members`/`takenSets` computed logic
+    across multiple rows, add/remove row behavior, locked propagation to
+    children.
+  - `WhatsappShare.vue`: `buildMessage()` template substitution (including
+    the no-dangling-role-line cleanup), `ready` computed across its three
+    conditions.
+- **Retrofit:** Tasks 1-4 were implemented before this decision; a dedicated
+  task (Task 4.5) adds the missing test files for everything already built
+  (`person.js`, `TaskSelect.vue`, `PersonRow.vue`) before Task 5 continues,
+  so the whole project is consistently covered going forward.
+
 ## Testing / verification plan
 
-No automated tests exist today and none are introduced by this migration.
-After implementation, manually re-verify (via `npm run dev`) the same
-scenarios already validated earlier in this project:
+Automated unit tests (above) are the first gate. After they pass, manually
+re-verify (via `npm run dev`) the same end-to-end scenarios already validated
+earlier in this project — this manual pass is unchanged by the addition of
+unit tests:
 
 1. Team section is locked (inputs, remove, add-person button all disabled)
    until a mission is chosen; clearing the mission re-locks it while
@@ -250,7 +302,29 @@ scenarios already validated earlier in this project:
 
 ## Out of scope
 
-- No router, no Pinia, no TypeScript, no automated tests, no CI, no git
-  initialization — all explicitly declined during brainstorming.
+- No router, no Pinia, no TypeScript, no CI — declined during brainstorming.
+- No file-splitting of `.vue` SFCs into separate `.vue`/`.js`/`.css` files —
+  raised and then explicitly withdrawn by the human partner mid-migration;
+  `<script setup>` + `<style scoped>` stay inline in each `.vue` file.
+  `.spec.js` test files are colocated siblings, which is a different thing
+  (a whole separate file, not a piece of the component's own SFC split out).
 - No behavior changes beyond the mechanical framework port — this is a
   like-for-like migration.
+
+## Amendments after initial approval
+
+- **Git:** revised — initialized locally (`git init`, repo-local commit
+  identity) partway through execution, when it turned out the chosen
+  execution methodology (subagent-driven-development) requires git commits
+  to function. Nothing is pushed to any remote; this doesn't reopen the
+  original "no git for this project" spirit, just accommodates the tooling.
+- **Testing:** revised from "no automated tests" to "Vitest, full coverage,
+  written before manual verification per file" — see the Unit testing
+  section above.
+- **Task 4 (`PersonRow.vue`) note:** its original checklist wrongly described
+  "edit after a pick, then blur" as reverting to the *originally picked*
+  name. Re-tracing the actual vanilla `#onInput()` (already shipped, from
+  this project's earlier "pick only from list" work) confirms it invalidates
+  a pick on the very first keystroke, before blur runs — so reverting to
+  *empty* is the correct, already-shipped behavior. The wording was wrong,
+  not the code; no behavior changed.
