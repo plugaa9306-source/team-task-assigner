@@ -1,6 +1,6 @@
 <template>
   <div class="task-select">
-    <label class="ts-label" for="ts-select">משימה</label>
+    <label class="ts-label" for="ts-select"><AppIcon name="clipboard" :size="18" />משימה</label>
     <select
       id="ts-select"
       :value="modelValue"
@@ -13,6 +13,7 @@
 </template>
 
 <script setup>
+import AppIcon from "./AppIcon.vue";
 defineProps({
   tasks: { type: Array, default: () => [] },
   modelValue: { type: String, default: "" },
@@ -26,7 +27,9 @@ defineEmits(["update:modelValue"]);
   padding: 18px 18px 10px;
 }
 .ts-label {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   margin-bottom: 7px;
   font-weight: 700;
   color: var(--primary-dark);

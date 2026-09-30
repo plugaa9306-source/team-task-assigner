@@ -2,6 +2,7 @@
   <div class="person-row" ref="rootEl">
     <div class="pr-main">
       <div class="pr-name-wrap">
+        <AppIcon class="pr-name-icon" name="search" :size="17" />
         <input
           ref="nameInputEl"
           type="text"
@@ -75,6 +76,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, useId, nextTick } from "vue";
+import AppIcon from "./AppIcon.vue";
 import { NO_ID, personKey } from "../lib/person.js";
 
 const props = defineProps({
@@ -240,7 +242,9 @@ watch(() => props.locked, (locked) => { if (locked) close(); });
 .person-row:hover, .person-row:focus-within { border-color: var(--primary-light); }
 
 .pr-main { display: flex; gap: 8px; align-items: stretch; }
-.pr-name-wrap { flex: 1; min-width: 0; }
+.pr-name-wrap { flex: 1; min-width: 0; position: relative; }
+.pr-name-icon { position: absolute; inset-inline-start: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.pr-name { padding-inline-start: 36px; }
 
 .pr-remove {
   flex: none;
