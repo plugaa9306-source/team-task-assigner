@@ -1,6 +1,6 @@
 {
   "header": "📌 *דף משימה: {TASK}*",
   "subheader": "👥 *צוות יוצא:*",
-  "item_format": "• [{ID}] *{FIRST_NAME} {LAST_NAME}* - {ROLE}",
+  "item_format": "• [{ID}] *{FIRST_NAME} {LAST_NAME}* - {ROLE} - {PHONE}",
   "footer": "משוגר ממחולל המשימות 🚀"
 }

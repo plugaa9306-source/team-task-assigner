@@ -1,6 +1,7 @@
 import { reactive, computed } from "vue";
-import { post } from "../services/api.js";
+import { loginRequest } from "../services/api.js";
 import { STORAGE_KEY } from "./authStorage.js";
+import { clearSoldiers } from "./soldiers.js";
 
 export { STORAGE_KEY };
 
@@ -33,7 +34,7 @@ export function hydrate() {
 export async function login(passcode) {
   state.isLoading = true;
   try {
-    const data = await post({ code: passcode });
+    const data = await loginRequest(passcode);
     if (!data.success) return { ok: false, error: data.error || data.message || "קוד שגוי" };
     const session = { token: data.token, role: data.role, canEdit: Boolean(data.canEdit) };
     try {
@@ -42,9 +43,8 @@ export async function login(passcode) {
       // session still works in memory if storage is blocked
     }
     apply(session);
+    clearSoldiers(); // a new login always refetches the soldiers list
     return { ok: true };
-  } catch {
-    return { ok: false, error: "שגיאת רשת, נסו שוב" };
   } finally {
     state.isLoading = false;
   }
@@ -57,6 +57,7 @@ export function logout() {
     // ignore
   }
   apply();
+  clearSoldiers();
 }
 
 export function useAuth() {

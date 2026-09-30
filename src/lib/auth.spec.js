@@ -12,7 +12,7 @@ describe("auth", () => {
     const fetchMock = reply({ success: true, token: "abc", role: "Viewer", canEdit: false });
     vi.stubGlobal("fetch", fetchMock);
     expect(await login("1234")).toEqual({ ok: true });
-    expect(fetchMock).toHaveBeenCalledWith(AUTH_URL, expect.objectContaining({ method: "POST", body: '{"code":"1234"}' }));
+    expect(fetchMock).toHaveBeenCalledWith(AUTH_URL, expect.objectContaining({ method: "POST", body: '{"action":"login","code":"1234"}' }));
     const auth = useAuth();
     expect(auth.isAuthenticated.value).toBe(true);
     expect(auth.role.value).toBe("Viewer");
@@ -28,7 +28,7 @@ describe("auth", () => {
   });
 
   it("reports a network error", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
     const r = await login("x");
     expect(r.ok).toBe(false);
     expect(useAuth().isLoading.value).toBe(false);
@@ -50,5 +50,18 @@ describe("auth", () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     const auth = useAuth();
     expect([auth.isAuthenticated.value, auth.role.value, auth.canEdit.value]).toEqual([false, "", false]);
+  });
+});
+
+describe("soldiers cache and auth", () => {
+  it("login and logout both clear the cached soldiers list", async () => {
+    localStorage.setItem("team_app_soldiers", "[]");
+    vi.stubGlobal("fetch", reply({ success: true, token: "t", role: "Viewer", canEdit: false }));
+    await login("1");
+    expect(localStorage.getItem("team_app_soldiers")).toBeNull();
+    localStorage.setItem("team_app_soldiers", "[]");
+    logout();
+    expect(localStorage.getItem("team_app_soldiers")).toBeNull();
+    vi.unstubAllGlobals();
   });
 });
