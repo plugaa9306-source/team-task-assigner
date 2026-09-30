@@ -24,6 +24,13 @@
 
 html, body { height: 100%; }
 
+/* Vite's mount point sits between body and .card; without this it doesn't
+   stretch on the flex main axis, so .card's width:100% resolves against its
+   shrunk-to-fit size instead of body's. display:contents removes #app from
+   the box tree so .card is body's direct flex child again, as in the
+   original markup. */
+#app { display: contents; }
+
 body {
   margin: 0;
   background: radial-gradient(circle at 50% 0%, #e8ecee, var(--bg) 60%);
