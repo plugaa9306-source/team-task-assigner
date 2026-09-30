@@ -1,8 +1,3 @@
-@import url("components/task-select/task-select.css");
-@import url("components/team-builder/team-builder.css");
-@import url("components/person-row/person-row.css");
-@import url("components/whatsapp-share/whatsapp-share.css");
-
 :root {
   --bg: #dde3e6;
   --card: #f8fafa;
