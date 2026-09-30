@@ -8,6 +8,11 @@
     <TaskSelect :tasks="tasks" v-model="task" />
     <p style="padding: 0 18px;">משימה נבחרת: {{ task || "(אין)" }}</p>
 
+    <div style="padding: 18px;">
+      <PersonRow v-model="testRow" :people="people" :roles="roles" :taken="new Set()" :can-remove="false" :locked="false" />
+      <pre style="margin-top: 8px; font-size: 12px;">{{ testRow }}</pre>
+    </div>
+
     <p v-if="error" class="app-error" role="alert">{{ error }}</p>
   </main>
 </template>
@@ -15,6 +20,8 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import TaskSelect from "./components/TaskSelect.vue";
+import PersonRow from "./components/PersonRow.vue";
+import { NO_ID } from "./lib/person.js";
 
 const task = ref("");
 const people = ref([]);
@@ -22,6 +29,7 @@ const roles = ref([]);
 const tasks = ref([]);
 const template = ref(null);
 const error = ref("");
+const testRow = ref({ firstName: "", lastName: "", id: NO_ID, role: "" });
 
 function load(name) {
   return fetch(`data/${name}.json`).then((r) => {
