@@ -74,7 +74,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch, useId } from "vue";
+import { ref, reactive, computed, onMounted, onUnmounted, watch, useId, nextTick } from "vue";
 import { NO_ID, personKey } from "../lib/person.js";
 
 const props = defineProps({
@@ -153,7 +153,7 @@ function pick(p) {
   emit("update:modelValue", { firstName: p.firstName, lastName: p.lastName, id: p.id, role: props.modelValue.role });
   nameText.value = `${p.firstName} ${p.lastName}`;
   close();
-  roleSelectEl.value?.focus();
+  nextTick(() => { roleSelectEl.value?.focus(); });
 }
 
 function onNameBlur() {
