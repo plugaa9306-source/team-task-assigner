@@ -2,14 +2,14 @@
   <div class="whatsapp-share">
     <details class="ws-preview">
       <summary>
-        <span>תצוגה מקדימה של ההודעה</span>
+        <span class="ws-sum-label"><AppIcon name="chat" :size="18" />תצוגה מקדימה של ההודעה</span>
         <span class="ws-chevron" aria-hidden="true">▾</span>
       </summary>
       <pre class="ws-text">{{ previewText }}</pre>
     </details>
     <div class="ws-actions">
-      <button type="button" class="ws-share" :disabled="!ready" @click="share">שתף בוואטסאפ</button>
-      <button type="button" class="ws-copy" :disabled="!ready" @click="copy">העתק</button>
+      <button type="button" class="ws-share" :disabled="!ready" @click="share"><AppIcon name="whatsapp" :size="19" />שתף בוואטסאפ</button>
+      <button type="button" class="ws-copy" :disabled="!ready" @click="copy"><AppIcon name="copy" :size="17" />העתק</button>
     </div>
     <p class="ws-status" role="status" aria-live="polite">{{ status }}</p>
   </div>
@@ -17,6 +17,7 @@
 
 <script setup>
 import { ref, computed, watch } from "vue";
+import AppIcon from "./AppIcon.vue";
 
 const props = defineProps({
   task: { type: String, default: "" },
@@ -106,6 +107,7 @@ async function copy() {
   font-weight: 600;
   color: var(--primary);
 }
+.ws-sum-label { display: inline-flex; align-items: center; gap: 8px; }
 .ws-preview summary::-webkit-details-marker { display: none; }
 .ws-preview summary::marker { content: ""; }
 .ws-chevron {
@@ -126,6 +128,10 @@ async function copy() {
 
 .ws-share {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border: 0;
   border-radius: 10px;
   background: linear-gradient(135deg, var(--wa), var(--wa-dark));
@@ -139,6 +145,9 @@ async function copy() {
 
 .ws-copy {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   padding: 0 18px;
   border: 1.5px solid var(--primary);
   border-radius: 10px;

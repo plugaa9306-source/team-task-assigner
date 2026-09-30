@@ -1,10 +1,12 @@
 import { createRouter, createWebHashHistory } from "vue-router";
 import MainView from "./views/MainView.vue";
 import LoginView from "./views/LoginView.vue";
+import SoldierDetailsView from "./views/SoldierDetailsView.vue";
 import { isAuthenticated } from "./lib/auth.js";
 
 export const routes = [
   { path: "/", name: "main", component: MainView, meta: { requiresAuth: true } },
+  { path: "/soldiers", name: "soldiers", component: SoldierDetailsView, meta: { requiresAuth: true } },
   { path: "/login", name: "login", component: LoginView },
   { path: "/:pathMatch(.*)*", redirect: "/" },
 ];

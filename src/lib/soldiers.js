@@ -32,6 +32,7 @@ export function normalizeSoldier(s) {
     id: String(s.personalId ?? "").trim() || NO_ID,
     firstName: String(s.firstName ?? "").trim(),
     lastName: String(s.lastName ?? "").trim(),
+    idNum: String(s.idNum ?? "").trim(),
     phone: String(s.phone ?? "").trim(),
     unit: String(s.unit ?? "").trim(),
     tabName: String(s.tabName ?? "").trim(),

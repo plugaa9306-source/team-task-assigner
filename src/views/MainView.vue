@@ -3,7 +3,10 @@
     <header class="app-header">
       <div class="app-header-row">
         <h1>שיבוץ משימה</h1>
-        <button type="button" class="app-logout" @click="onLogout">יציאה</button>
+        <div class="app-header-actions">
+          <router-link class="app-logout" :to="{ name: 'soldiers' }"><AppIcon name="users" :size="16" />פרטי חיילים</router-link>
+          <button type="button" class="app-logout" @click="onLogout"><AppIcon name="logout" :size="16" />יציאה</button>
+        </div>
       </div>
       <p>בחרו משימה, שבצו אנשים ושלחו בוואטסאפ</p>
     </header>
@@ -37,6 +40,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
+import AppIcon from "../components/AppIcon.vue";
 import TaskSelect from "../components/TaskSelect.vue";
 import TeamBuilder from "../components/TeamBuilder.vue";
 import WhatsappShare from "../components/WhatsappShare.vue";
@@ -91,17 +95,27 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.app-header-actions { display: flex; align-items: center; gap: 8px; }
 .app-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .app-logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  text-decoration: none;
+  white-space: nowrap;
   font: inherit;
   font-size: .85rem;
   color: var(--primary-ink);
   background: rgba(255, 255, 255, .18);
   border: 1px solid rgba(255, 255, 255, .4);
   border-radius: var(--radius);
-  padding: 4px 12px;
+  padding: 0 14px;
   cursor: pointer;
+  transition: background-color var(--ease);
 }
+.app-logout:hover { background: rgba(255, 255, 255, .28); }
 .soldiers-bar { padding: 0 18px; }
 .soldiers-status { margin: 0 0 6px; display: flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--muted); }
 .soldiers-error { color: var(--danger); font-weight: 600; }
