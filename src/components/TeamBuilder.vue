@@ -139,5 +139,5 @@ function removeRow(key) {
   color: var(--primary);
   font-weight: 600;
 }
-.tb-add:hover { background: #e3eef1; border-style: solid; }
+.tb-add:hover:not(:disabled) { background: #e3eef1; border-style: solid; }
 </style>
