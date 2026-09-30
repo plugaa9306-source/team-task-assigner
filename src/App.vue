@@ -5,9 +5,8 @@
       <p>בחרו משימה, שבצו אנשים ושלחו בוואטסאפ</p>
     </header>
 
-    <p style="padding: 18px;">
-      נטענו: {{ people.length }} אנשים, {{ tasks.length }} משימות, {{ roles.length }} תפקידים, תבנית: {{ template ? "כן" : "לא" }}
-    </p>
+    <TaskSelect :tasks="tasks" v-model="task" />
+    <p style="padding: 0 18px;">משימה נבחרת: {{ task || "(אין)" }}</p>
 
     <p v-if="error" class="app-error" role="alert">{{ error }}</p>
   </main>
@@ -15,7 +14,9 @@
 
 <script setup>
 import { ref, onMounted } from "vue";
+import TaskSelect from "./components/TaskSelect.vue";
 
+const task = ref("");
 const people = ref([]);
 const roles = ref([]);
 const tasks = ref([]);
