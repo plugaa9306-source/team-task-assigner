@@ -12,16 +12,19 @@ const emptyValue = () => ({ firstName: "", lastName: "", id: NO_ID, role: "" });
 
 describe("PersonRow", () => {
   it("filters people by the typed query, excluding taken keys", async () => {
-    const wrapper = mount(PersonRow, {
+    const withoutTaken = mount(PersonRow, {
+      props: { people, roles, taken: new Set(), canRemove: true, locked: false, modelValue: emptyValue() },
+    });
+    await withoutTaken.find(".pr-name").setValue("דוד");
+    await withoutTaken.find(".pr-name").trigger("input");
+    expect(withoutTaken.findAll(".pr-res-name").map((o) => o.text())).toEqual(["דוד כהן"]);
+
+    const withTaken = mount(PersonRow, {
       props: { people, roles, taken: new Set(["id:2"]), canRemove: true, locked: false, modelValue: emptyValue() },
     });
-    await wrapper.find(".pr-name").setValue("");
-    await wrapper.find(".pr-name").setValue("");
-    await wrapper.find(".pr-name").element.dispatchEvent(new Event("input"));
-    await wrapper.find(".pr-name").setValue("מ");
-    await wrapper.find(".pr-name").trigger("input");
-    const options = wrapper.findAll(".pr-res-name");
-    expect(options.map((o) => o.text())).toEqual(["משה לוי"]);
+    await withTaken.find(".pr-name").setValue("דוד");
+    await withTaken.find(".pr-name").trigger("input");
+    expect(withTaken.findAll(".pr-res-name")).toHaveLength(0);
   });
 
   it("emits update:modelValue with the picked person when a result is clicked", async () => {
