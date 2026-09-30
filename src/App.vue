@@ -13,8 +13,7 @@
       @update:members="members = $event"
       @update:all-complete="allComplete = $event"
     />
-    <pre style="margin: 0 18px; font-size: 12px;">members: {{ members }}
-allComplete: {{ allComplete }}</pre>
+    <WhatsappShare :task="task" :members="members" :all-complete="allComplete" :template="template" />
 
     <p v-if="error" class="app-error" role="alert">{{ error }}</p>
   </main>
@@ -24,6 +23,7 @@ allComplete: {{ allComplete }}</pre>
 import { ref, onMounted } from "vue";
 import TaskSelect from "./components/TaskSelect.vue";
 import TeamBuilder from "./components/TeamBuilder.vue";
+import WhatsappShare from "./components/WhatsappShare.vue";
 
 const task = ref("");
 const people = ref([]);
