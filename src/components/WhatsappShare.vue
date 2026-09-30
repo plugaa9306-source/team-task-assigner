@@ -38,10 +38,13 @@ function buildMessage() {
       .replaceAll("{FIRST_NAME}", m.firstName ?? "")
       .replaceAll("{LAST_NAME}", m.lastName ?? "")
       .replaceAll("{ID}", m.id ?? "")
+      .replaceAll("{PHONE}", m.phone ?? "")
       .replaceAll("{ROLE}", m.role ?? "");
 
   const items = props.members.map((m) => {
-    let line = fill(t.item_format, m);
+    // drop the " - {PHONE}" segment when the person has no phone on record
+    const format = m.phone ? t.item_format : t.item_format.replace(/\s*-\s*\{PHONE\}/, "").replace("{PHONE}", "");
+    let line = fill(format, m);
     if (!m.role) line = line.replace(/\s*-\s*$/, "").replace(/\s{2,}/g, " ");
     return line.trim();
   });

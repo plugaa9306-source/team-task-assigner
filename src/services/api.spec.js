@@ -1,28 +1,62 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { apiRequest, setAuthErrorHandler, API_URL } from "./api.js";
+import { apiCall, setAuthErrorHandler, API_URL } from "./api.js";
 import { STORAGE_KEY } from "../lib/authStorage.js";
 
 const reply = (body) => vi.fn().mockResolvedValue({ ok: true, json: async () => body });
 
-describe("apiRequest", () => {
-  beforeEach(() => localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "tok" })));
+describe("apiCall", () => {
+  beforeEach(() => localStorage.clear());
   afterEach(() => { vi.unstubAllGlobals(); setAuthErrorHandler(() => {}); });
 
-  it("posts text/plain JSON with the stored token injected", async () => {
-    const fetchMock = reply({ success: true });
+  it("sends login without a token, even when none is stored", async () => {
+    const fetchMock = reply({ success: true, token: "t" });
     vi.stubGlobal("fetch", fetchMock);
-    await apiRequest("saveAssignment", { id: 1 }, { isWriteAction: true });
+    await apiCall("login", { code: "1" });
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(API_URL);
-    expect(init.headers["Content-Type"]).toBe("text/plain;charset=utf-8");
-    expect(JSON.parse(init.body)).toEqual({ action: "saveAssignment", token: "tok", isWriteAction: true, id: 1 });
+    expect(init.headers).toEqual({ "Content-Type": "text/plain;charset=utf-8" });
+    expect(JSON.parse(init.body)).toEqual({ action: "login", code: "1" });
   });
 
-  it("calls the auth-error handler and throws when the server flags isAuthError", async () => {
-    vi.stubGlobal("fetch", reply({ success: false, isAuthError: true, message: "expired" }));
+  it("injects the stored token into protected actions", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "tok" }));
+    const fetchMock = reply({ success: true });
+    vi.stubGlobal("fetch", fetchMock);
+    await apiCall("getSoldiers");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ action: "getSoldiers", token: "tok" });
+  });
+
+  it("returns an auth error without a network request when the token is missing", async () => {
+    const fetchMock = reply({});
+    vi.stubGlobal("fetch", fetchMock);
     const handler = vi.fn();
     setAuthErrorHandler(handler);
-    await expect(apiRequest("x")).rejects.toThrow("expired");
+    expect(await apiCall("getSoldiers")).toEqual({ success: false, error: "Missing token", isAuthError: true });
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("triggers the auth handler when the server flags isAuthError on a protected action", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "tok" }));
+    vi.stubGlobal("fetch", reply({ success: false, isAuthError: true, error: "expired" }));
+    const handler = vi.fn();
+    setAuthErrorHandler(handler);
+    expect((await apiCall("getSoldiers")).error).toBe("expired");
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("does not trigger the auth handler for a failed login", async () => {
+    vi.stubGlobal("fetch", reply({ success: false, isAuthError: true, error: "bad" }));
+    const handler = vi.fn();
+    setAuthErrorHandler(handler);
+    await apiCall("login", { code: "x" });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("catches network errors and invalid JSON without throwing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
+    expect(await apiCall("login", { code: "x" })).toMatchObject({ success: false, isNetworkError: true });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => { throw new SyntaxError("bad"); } }));
+    expect(await apiCall("login", { code: "x" })).toMatchObject({ success: false, error: "תשובה לא תקינה מהשרת" });
   });
 });

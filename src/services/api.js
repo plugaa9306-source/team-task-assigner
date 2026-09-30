@@ -3,9 +3,12 @@ import { STORAGE_KEY } from "../lib/authStorage.js";
 export const API_URL =
   "https://script.google.com/macros/s/AKfycbzsSSfbdpmpQZS_bK3wHsN3eIB1l4KJreRxky7v6zCqwDOGYvEsbP317m3ONFMJ09r5/exec";
 
+// Actions that run without a session token.
+const PUBLIC_ACTIONS = new Set(["login"]);
+
 let onAuthError = () => {};
 
-// Called when the server rejects the session (expired, revoked, or no edit rights).
+// Called when a protected action is rejected (missing, expired or revoked token).
 export function setAuthErrorHandler(handler) {
   onAuthError = handler;
 }
@@ -18,24 +21,44 @@ export function getStoredToken() {
   }
 }
 
-// text/plain keeps this a "simple" CORS request (no preflight), which Apps Script requires.
-export async function post(body) {
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+// Always resolves to { success, ... } and never throws.
+// Protected actions get the stored token injected; with no token they fail locally (no network request).
+export async function apiCall(action, params = {}) {
+  const payload = { action, ...params };
+
+  if (!PUBLIC_ACTIONS.has(action)) {
+    const token = getStoredToken();
+    if (!token) return authFailure({ success: false, error: "Missing token", isAuthError: true });
+    payload.token = token;
+  }
+
+  let data;
+  try {
+    // text/plain keeps this a "simple" CORS request (no preflight), which Apps Script requires.
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) return { success: false, error: `שגיאת שרת (${res.status})`, isNetworkError: true };
+    data = await res.json();
+  } catch (err) {
+    const parseError = err instanceof SyntaxError;
+    return {
+      success: false,
+      error: parseError ? "תשובה לא תקינה מהשרת" : "שגיאת רשת, נסו שוב",
+      isNetworkError: !parseError,
+    };
+  }
+
+  if (!data || typeof data !== "object") return { success: false, error: "תשובה לא תקינה מהשרת" };
+  return data.isAuthError && !PUBLIC_ACTIONS.has(action) ? authFailure(data) : data;
 }
 
-// Authenticated call: injects the stored token and handles auth failures globally.
-// Pass isWriteAction: true for operations that modify data (the server requires canEdit for them).
-export async function apiRequest(action, params = {}, { isWriteAction = false } = {}) {
-  const data = await post({ action, token: getStoredToken(), isWriteAction, ...params });
-  if (data?.isAuthError) {
-    onAuthError(data);
-    throw new Error(data.message || "Not authorized");
-  }
-  return data;
+function authFailure(result) {
+  onAuthError(result);
+  return result;
 }
+
+export const loginRequest = (code) => apiCall("login", { code });
+export const getSoldiers = () => apiCall("getSoldiers");

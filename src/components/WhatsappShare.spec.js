@@ -54,3 +54,18 @@ describe("WhatsappShare", () => {
     expect(wrapper.find(".ws-status").text()).toBe("ההודעה הועתקה");
   });
 });
+
+describe("WhatsappShare phone placeholder", () => {
+  const tpl = { header: "{TASK}", subheader: "s", item_format: "• [{ID}] {FIRST_NAME} {LAST_NAME} - {ROLE} - {PHONE}", footer: "f" };
+  const mk = (m) => mount(WhatsappShare, { props: { task: "t", members: [m], allComplete: true, template: tpl } }).find(".ws-text").text();
+
+  it("includes the phone number", () => {
+    expect(mk({ firstName: "א", lastName: "ב", id: "1", role: "נהג", phone: "0501234567" })).toContain("• [1] א ב - נהג - 0501234567");
+  });
+
+  it("omits the phone segment when there is none", () => {
+    const text = mk({ firstName: "א", lastName: "ב", id: "1", role: "נהג", phone: "" });
+    expect(text).toContain("• [1] א ב - נהג");
+    expect(text).not.toContain("נהג -");
+  });
+});

@@ -126,7 +126,7 @@ defineExpose({ focusName });
 function onInput(e) {
   nameText.value = e.target.value;
   if (props.modelValue.id !== NO_ID) {
-    emit("update:modelValue", { firstName: "", lastName: "", id: NO_ID, role: props.modelValue.role });
+    emit("update:modelValue", { firstName: "", lastName: "", id: NO_ID, phone: "", role: props.modelValue.role });
   }
   search();
 }
@@ -150,7 +150,7 @@ function search() {
 }
 
 function pick(p) {
-  emit("update:modelValue", { firstName: p.firstName, lastName: p.lastName, id: p.id, role: props.modelValue.role });
+  emit("update:modelValue", { firstName: p.firstName, lastName: p.lastName, id: p.id, phone: p.phone ?? "", role: props.modelValue.role });
   nameText.value = `${p.firstName} ${p.lastName}`;
   close();
   nextTick(() => { roleSelectEl.value?.focus(); });
