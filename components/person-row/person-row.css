@@ -1,0 +1,85 @@
+person-row {
+  display: block;
+  padding: 12px;
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--ease), border-color var(--ease);
+}
+person-row:hover, person-row:focus-within { border-color: var(--primary-light); }
+
+.pr-main { display: flex; gap: 8px; align-items: stretch; }
+.pr-name-wrap { flex: 1; min-width: 0; }
+
+.pr-remove {
+  flex: none;
+  width: var(--tap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--danger);
+}
+.pr-remove:hover:not(:disabled) { background: #f6dde0; border-color: var(--danger); }
+.pr-remove:disabled { opacity: .35; cursor: not-allowed; }
+.pr-remove-icon { fill: none; }
+
+.pr-second {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 8px;
+}
+.pr-role { flex: 1; min-width: 0; }
+
+.pr-meta {
+  flex: none;
+  font-size: .85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.pr-meta.is-free { color: var(--danger); }
+
+.pr-name.pr-invalid, .pr-role.pr-invalid { border-color: var(--danger); }
+
+.pr-hint {
+  margin: 6px 0 0;
+  color: var(--danger);
+  font-size: .8rem;
+}
+.pr-hint[hidden] { display: none; }
+
+.pr-results {
+  position: fixed;
+  z-index: 1000;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  overflow-y: auto;
+  background: #fff;
+  border: 1.5px solid var(--primary);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(21, 35, 43, .22);
+}
+.pr-results[hidden] { display: none; }
+
+.pr-results li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.pr-res-name { font-weight: 600; }
+.pr-res-id { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
+
+@media (hover: hover) {
+  .pr-results li:hover { background: #e3eef1; }
+}
+.pr-results li.is-active { background: #e3eef1; }
