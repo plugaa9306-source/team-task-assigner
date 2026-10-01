@@ -35,6 +35,25 @@ describe("SoldierDetailsView", () => {
     expect(w.find(".sd-results").exists()).toBe(false);
   });
 
+  it("supports keyboard navigation: arrows move, Enter picks, Escape closes", async () => {
+    const w = mountView();
+    const input = w.find("input");
+    await input.setValue("שלמה");
+    await input.trigger("keydown", { key: "ArrowDown" });
+    await input.trigger("keydown", { key: "ArrowDown" });
+    const items = w.findAll(".sd-results li");
+    expect(items[1].classes()).toContain("is-active");
+    await input.trigger("keydown", { key: "ArrowUp" });
+    expect(w.findAll(".sd-results li")[0].classes()).toContain("is-active");
+    await input.trigger("keydown", { key: "Escape" });
+    expect(w.find(".sd-results").exists()).toBe(false);
+    await input.trigger("keydown", { key: "ArrowDown" });
+    expect(w.find(".sd-results").exists()).toBe(true);
+    await input.trigger("keydown", { key: "Enter" });
+    expect(w.find(".sd-profile").text()).toContain("שלמה");
+    expect(w.find(".sd-results").exists()).toBe(false);
+  });
+
   it("auto-selects a single match and renders call/WhatsApp links", async () => {
     const w = mountView();
     await w.find("input").setValue("7158852");

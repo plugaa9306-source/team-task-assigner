@@ -21,12 +21,27 @@
           placeholder="חיפוש לפי שם, מ&quot;א או ת&quot;ז…"
           autocomplete="off"
           aria-label="חיפוש חייל"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls="sd-listbox"
+          :aria-expanded="showPanel"
+          :aria-activedescendant="showPanel && active >= 0 ? `sd-opt-${active}` : undefined"
           @input="onInput"
+          @keydown="onKey"
         >
         <button v-if="query" type="button" class="sd-clear" aria-label="נקה חיפוש" @click="clear">✕</button>
 
-        <ul v-if="showPanel" class="sd-results" role="listbox">
-          <li v-for="s in matches" :key="s.id + s.firstName + s.lastName" role="option" @click="pick(s)">
+        <ul v-if="showPanel" id="sd-listbox" class="sd-results" role="listbox">
+          <li
+            v-for="(s, i) in matches"
+            :id="`sd-opt-${i}`"
+            :key="s.id + s.firstName + s.lastName"
+            role="option"
+            :aria-selected="i === active"
+            :class="{ 'is-active': i === active }"
+            @mousemove="active = i"
+            @click="pick(s)"
+          >
             <span class="sd-res-name">{{ s.firstName }} {{ s.lastName }}</span>
             <span v-if="unitOf(s)" class="sd-badge">{{ unitOf(s) }}</span>
           </li>
@@ -97,7 +112,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, onMounted } from "vue";
+import { ref, computed, reactive, onMounted, nextTick } from "vue";
 import { useSoldiers, unitOf } from "../lib/soldiers.js";
 import { searchSoldiers } from "../lib/soldierSearch.js";
 import {
@@ -120,6 +135,7 @@ const FIELD_ICONS = {
 const query = ref("");
 const picked = ref(null);
 const panelOpen = ref(true);
+const active = ref(-1);
 const copied = ref(false);
 const editing = ref(false);
 const noChanges = ref(false);
@@ -152,13 +168,37 @@ const showPanel = computed(() => panelOpen.value && !picked.value && matches.val
 
 function onInput() {
   picked.value = null;
+  active.value = -1;
   panelOpen.value = true;
 }
 function pick(s) {
   picked.value = s;
+  active.value = -1;
   panelOpen.value = false;
 }
+function move(delta) {
+  const n = matches.value.length;
+  active.value = active.value < 0 ? (delta > 0 ? 0 : n - 1) : (active.value + delta + n) % n;
+  nextTick(() => document.getElementById(`sd-opt-${active.value}`)?.scrollIntoView({ block: "nearest" }));
+}
+
+function onKey(e) {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (!matches.value.length || (picked.value && matches.value.length === 1)) return;
+    e.preventDefault();
+    if (!showPanel.value) { picked.value = null; panelOpen.value = true; }
+    move(e.key === "ArrowDown" ? 1 : -1);
+  } else if (e.key === "Enter" && showPanel.value) {
+    e.preventDefault();
+    pick(matches.value[active.value >= 0 ? active.value : 0]);
+  } else if (e.key === "Escape" && showPanel.value) {
+    e.preventDefault();
+    panelOpen.value = false;
+  }
+}
+
 function clear() {
+  active.value = -1;
   query.value = "";
   picked.value = null;
   panelOpen.value = true;
@@ -209,7 +249,7 @@ function generate() {
 .sd-clear { position: absolute; inset-inline-end: 6px; top: 6px; width: 34px; height: 34px; border: 0; background: none; color: var(--muted); font-size: 1rem; cursor: pointer; }
 .sd-results { position: absolute; z-index: 5; inset-inline: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none; max-height: 260px; overflow-y: auto; background: #fff; border: 1.5px solid var(--primary); border-radius: var(--radius); box-shadow: var(--shadow-md); }
 .sd-results li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px; border-radius: 8px; cursor: pointer; }
-.sd-results li:hover { background: #e3eef1; }
+.sd-results li.is-active { background: #e3eef1; }
 .sd-badge { font-size: .78rem; font-weight: 700; color: var(--primary); background: #e3eef1; padding: 2px 10px; border-radius: 999px; white-space: nowrap; }
 
 .sd-note { margin: 4px 0; color: var(--muted); text-align: center; }
