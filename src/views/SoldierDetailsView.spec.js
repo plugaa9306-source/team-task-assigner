@@ -12,6 +12,7 @@ vi.mock("../lib/soldiers.js", async (orig) => ({
 }));
 import SoldierDetailsView from "./SoldierDetailsView.vue";
 
+
 const mountView = () => mount(SoldierDetailsView, { global: { stubs: { RouterLink: { template: "<a><slot /></a>" } } } });
 
 describe("SoldierDetailsView", () => {

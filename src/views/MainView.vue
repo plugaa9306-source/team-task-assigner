@@ -1,16 +1,5 @@
 <template>
-  <main class="card">
-    <header class="app-header">
-      <div class="app-header-row">
-        <h1>שיבוץ משימה</h1>
-        <div class="app-header-actions">
-          <router-link class="app-logout" :to="{ name: 'soldiers' }"><AppIcon name="users" :size="16" />פרטי חיילים</router-link>
-          <button type="button" class="app-logout" @click="onLogout"><AppIcon name="logout" :size="16" />יציאה</button>
-        </div>
-      </div>
-      <p>בחרו משימה, שבצו אנשים ושלחו בוואטסאפ</p>
-    </header>
-
+  <AppLayout title="שיבוץ משימה" subtitle="בחרו משימה, שבצו אנשים ושלחו בוואטסאפ">
     <TaskSelect :tasks="tasks" v-model="task" />
     <div class="soldiers-bar">
       <p v-if="soldiersLoading" class="soldiers-status" role="status">
@@ -35,27 +24,19 @@
     <WhatsappShare :task="task" :members="members" :all-complete="allComplete" :template="template" />
 
     <p v-if="error" class="app-error" role="alert">{{ error }}</p>
-  </main>
+  </AppLayout>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import AppIcon from "../components/AppIcon.vue";
+import AppLayout from "../components/AppLayout.vue";
 import TaskSelect from "../components/TaskSelect.vue";
 import TeamBuilder from "../components/TeamBuilder.vue";
 import WhatsappShare from "../components/WhatsappShare.vue";
 import { fetchMissions, fetchRoles } from "../lib/missions.js";
-import { useAuth } from "../lib/auth.js";
-import { useRouter } from "vue-router";
+import { cachedSheetList } from "../lib/sheetCache.js";
 import { useSoldiers, unitOf } from "../lib/soldiers.js";
 
-const router = useRouter();
-const { logout } = useAuth();
-
-function onLogout() {
-  logout();
-  router.push({ name: "login" });
-}
 
 const task = ref("");
 const {
@@ -84,7 +65,11 @@ function load(name) {
 onMounted(async () => {
   loadSoldiers();
   try {
-    const [t, r, tpl] = await Promise.all([fetchMissions(), fetchRoles(), load("template")]);
+    const [t, r, tpl] = await Promise.all([
+      cachedSheetList("missions", fetchMissions),
+      cachedSheetList("roles", fetchRoles),
+      load("template"),
+    ]);
     tasks.value = t;
     roles.value = r;
     template.value = tpl;
@@ -95,27 +80,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.app-header-actions { display: flex; align-items: center; gap: 8px; }
-.app-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.app-logout {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 36px;
-  text-decoration: none;
-  white-space: nowrap;
-  font: inherit;
-  font-size: .85rem;
-  color: var(--primary-ink);
-  background: rgba(255, 255, 255, .18);
-  border: 1px solid rgba(255, 255, 255, .4);
-  border-radius: var(--radius);
-  padding: 0 14px;
-  cursor: pointer;
-  transition: background-color var(--ease);
-}
-.app-logout:hover { background: rgba(255, 255, 255, .28); }
 .soldiers-bar { padding: 0 18px; }
 .soldiers-status { margin: 0 0 6px; display: flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--muted); }
 .soldiers-error { color: var(--danger); font-weight: 600; }
