@@ -82,4 +82,17 @@ describe("AppLayout", () => {
     expect(router.currentRoute.value.name).toBe("login");
     expect(menuShown(w)).toBe(false);
   });
+
+  it("shows the title and subtitle together in one titles block on every screen", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "t" }));
+    hydrate();
+    const router = makeRouter();
+    router.push("/main");
+    await router.isReady();
+    const w = mount(AppLayout, { props: { title: "כותרת", subtitle: "תת" }, global: { plugins: [router] } });
+    expect(w.find(".al-titles h1").text()).toBe("כותרת");
+    expect(w.find(".al-titles p").text()).toBe("תת");
+    const noSub = mount(AppLayout, { props: { title: "כותרת" }, global: { plugins: [router] } });
+    expect(noSub.find(".al-titles p").exists()).toBe(false);
+  });
 });

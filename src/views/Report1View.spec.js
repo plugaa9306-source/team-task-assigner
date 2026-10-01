@@ -128,6 +128,7 @@ describe("Report1View", () => {
     const w = await mountView();
     const head = w.findAll(".r1-row-head")[0];
     expect(head.element.children[0].classList.contains("r1-name")).toBe(true); // name first => right side in RTL
+    expect(w.find(".r1-check").exists()).toBe(false); // no selection checkboxes on this screen
     const call = head.find(".r1-call");
     expect(call.attributes("href")).toBe("tel:0501234567");
     expect(call.attributes("title")).toBe("חייג");
@@ -228,20 +229,37 @@ describe("Report1View", () => {
     expect(w.findAll(".r1-status")[0].element.value).toBe("מ");
   });
 
-  it("shows a live preview in a collapsible section and sends it via WhatsApp", async () => {
+  it("shows a live preview in a pop-up toggled from the footer and sends it via WhatsApp", async () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     const w = await mountView();
-    const details = w.find(".r1-preview");
-    expect(details.element.tagName).toBe("DETAILS");
+    const shown = () => !(w.find(".r1-preview").attributes("style") ?? "").includes("display: none");
+    expect(shown()).toBe(false);
+    const toggle = w.find(".r1-preview-btn");
+    expect(toggle.attributes("aria-expanded")).toBe("false");
     await w.findAll(".r1-status")[0].setValue("מ");
     await w.findAll(".r1-note-input")[0].setValue("שומר");
+    await toggle.trigger("click");
+    expect(shown()).toBe(true);
+    expect(toggle.attributes("aria-expanded")).toBe("true");
     expect(w.find(".r1-preview-text").text()).toContain("• דוד כהן - במוצב (שומר)");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await w.vm.$nextTick();
+    expect(shown()).toBe(false);
     await w.find(".r1-wa").trigger("click");
     const text = decodeURIComponent(open.mock.calls[0][0]);
     expect(text).toContain('דו"ח 1 – מחלקה 1');
     open.mockRestore();
   });
 
+  it("uses a compact layout: header, one-row selectors, one-line counters, merged footer", async () => {
+    const w = await mountView();
+    expect(w.findAll(".r1-selectors > .r1-field")).toHaveLength(3);          // type, date, platoon in one grid row
+    expect(w.find(".r1-kpis").element.className).toBe("r1-kpis");           // flex strip of chips
+    expect(w.findAll(".r1-kpi").every((k) => k.find(".r1-kpi-label").exists())).toBe(true);
+    const actions = w.find(".r1-footer .r1-actions");
+    expect(actions.findAll("button")).toHaveLength(2);                       // preview toggle + WhatsApp on one row
+    expect(w.find(".r1-footer details").exists()).toBe(false);
+  });
   it("lets users without canEdit fill in the report, and has no save button", async () => {
     const w = await mountView({ canEdit: false });
     expect(w.find(".r1-status").attributes("disabled")).toBeUndefined();

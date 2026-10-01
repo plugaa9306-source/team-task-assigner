@@ -17,7 +17,7 @@
             <span>בחירת תאריך</span>
             <input type="date" class="r1-date" :value="date" :min="today" aria-label="בחירת תאריך" :disabled="controlsDisabled" @change="onDate">
           </label>
-          <label class="r1-field r1-field-wide">
+          <label class="r1-field">
             <span>בחירת מחלקה</span>
             <select v-model="unit" class="r1-unit" aria-label="בחירת מחלקה" :disabled="controlsDisabled">
               <option value="" disabled>בחרו מחלקה…</option>
@@ -27,11 +27,11 @@
         </section>
 
         <section class="r1-kpis" aria-label="סיכום המחלקה">
-          <div class="r1-kpi r1-kpi-total"><span class="r1-kpi-num">{{ stats.total }}</span><span class="r1-kpi-label">סה"כ</span></div>
+          <div class="r1-kpi r1-kpi-total"><span class="r1-kpi-label">סה"כ</span><span class="r1-kpi-num">{{ stats.total }}</span></div>
           <div v-for="st in statuses" :key="st.key" class="r1-kpi r1-kpi-status" :style="statusStyle(st.color)">
-            <span class="r1-kpi-num">{{ stats.byStatus[st.key] }}</span><span class="r1-kpi-label">{{ st.label }}</span>
+            <span class="r1-kpi-label">{{ st.label }}</span><span class="r1-kpi-num">{{ stats.byStatus[st.key] }}</span>
           </div>
-          <div class="r1-kpi k-unreported"><span class="r1-kpi-num">{{ stats.unreported }}</span><span class="r1-kpi-label">לא דווח</span></div>
+          <div class="r1-kpi k-unreported"><span class="r1-kpi-label">לא דווח</span><span class="r1-kpi-num">{{ stats.unreported }}</span></div>
         </section>
       </div>
 
@@ -87,14 +87,25 @@
             </div>
           </li>
         </ul>
+
       </div>
 
-      <footer class="r1-footer">
-        <details class="r1-preview">
-          <summary><span class="r1-sum-label"><AppIcon name="chat" :size="18" />תצוגה מקדימה</span><span aria-hidden="true">▾</span></summary>
+      <footer ref="footerEl" class="r1-footer">
+        <div v-show="previewOpen" id="r1-preview" class="r1-preview" role="region" aria-label="תצוגה מקדימה של ההודעה">
           <pre class="r1-preview-text">{{ previewText }}</pre>
-        </details>
+        </div>
         <div class="r1-actions">
+          <button
+            type="button"
+            class="r1-preview-btn"
+            title="תצוגה מקדימה"
+            aria-label="תצוגה מקדימה"
+            aria-controls="r1-preview"
+            :aria-expanded="previewOpen"
+            @click="previewOpen = !previewOpen"
+          >
+            <AppIcon name="chat" :size="22" />
+          </button>
           <button type="button" class="r1-btn r1-wa" :disabled="controlsDisabled || !unit || !unitSoldiers.length" @click="shareWhatsapp">
             <AppIcon name="whatsapp" :size="20" />שלח בוואטסאפ
           </button>
@@ -105,7 +116,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from "vue";
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from "vue";
 import AppLayout from "../components/AppLayout.vue";
 import AppIcon from "../components/AppIcon.vue";
 import { useSoldiers, unitOf } from "../lib/soldiers.js";
@@ -208,6 +219,24 @@ const selectStyle = (s) => {
   return st ? statusStyle(st.color) : {};
 };
 
+// The preview opens as a popover above the footer; it closes on Escape or a tap outside it.
+const previewOpen = ref(false);
+const footerEl = ref(null);
+const onOutside = (e) => {
+  if (previewOpen.value && footerEl.value && !footerEl.value.contains(e.target)) previewOpen.value = false;
+};
+const onKey = (e) => {
+  if (e.key === "Escape") previewOpen.value = false;
+};
+onMounted(() => {
+  document.addEventListener("pointerdown", onOutside);
+  document.addEventListener("keydown", onKey);
+});
+onUnmounted(() => {
+  document.removeEventListener("pointerdown", onOutside);
+  document.removeEventListener("keydown", onKey);
+});
+
 function shareWhatsapp() {
   window.open(whatsappTextUrl(previewText.value), "_blank", "noopener");
 }
@@ -223,26 +252,29 @@ onMounted(async () => {
 
 <style scoped>
 .r1 { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.r1-head { flex: none; padding: 14px 18px 8px; display: flex; flex-direction: column; gap: 12px; }
+.r1-head { flex: none; padding: 10px 18px 8px; display: flex; flex-direction: column; gap: 8px; }
 /* only the list of names scrolls; selectors and counters stay in view */
 .r1-scroll { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); padding: 12px 18px 14px; display: flex; flex-direction: column; gap: 12px; overscroll-behavior: contain; }
 /* children must keep their natural height; the column scrolls instead of squeezing them */
 .r1-scroll > * { flex-shrink: 0; }
 
-.r1-selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.r1-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: .8rem; font-weight: 700; color: var(--primary-dark); }
-.r1-field-wide { grid-column: 1 / -1; }
-.r1-date { min-height: var(--tap); width: 100%; padding: 0 10px; font: inherit; font-weight: 400; background: #fff; border: 1.5px solid var(--line); border-radius: 8px; }
+.r1-selectors { display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 8px; }
+.r1-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: .72rem; font-weight: 700; color: var(--primary-dark); }
+.r1-field select { min-height: 38px; padding: 4px 8px 4px 28px; background-position: left 6px center; font-size: .88rem; }
+@media (max-width: 400px) { .r1-selectors { grid-template-columns: 1fr 1fr; } .r1-selectors .r1-field:last-child { grid-column: 1 / -1; } }
+.r1-date { min-height: 38px; font-size: .88rem; width: 100%; padding: 0 10px; font: inherit; font-weight: 400; background: #fff; border: 1.5px solid var(--line); border-radius: 8px; }
 .r1-date:focus-visible { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px rgba(232, 163, 23, .28); }
 
-.r1-kpis { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(58px, 1fr); gap: 6px; overflow-x: auto; padding-bottom: 2px; }
-.r1-kpi { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 8px 2px; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-sm); }
-.r1-kpi-num { font-size: 1.25rem; font-weight: 800; line-height: 1.1; color: var(--primary-dark); }
-.r1-kpi-label { font-size: .7rem; color: var(--muted); text-align: center; white-space: nowrap; }
-/* status counters take their color from the server-provided status color (inline style) */
+.r1-kpis { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.r1-kpi { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 11px; background: #fff; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
+.r1-kpi-num { font-size: 1rem; font-weight: 800; line-height: 1; color: var(--primary-dark); }
+.r1-kpi-label { font-size: .76rem; color: var(--muted); }
+/* status chips take their text/border color from the server-provided status color (inline style) */
 .r1-kpi-status .r1-kpi-num, .r1-kpi-status .r1-kpi-label { color: inherit; }
 .k-unreported .r1-kpi-num { color: var(--muted); }
-
+/* the total chip uses the app's teal, like the status chips use their own colors */
+.r1-kpi-total { color: var(--primary-dark); border-color: var(--primary); }
+.r1-kpi-total .r1-kpi-num, .r1-kpi-total .r1-kpi-label { color: inherit; }
 
 .r1-alert { margin: 0; padding: 10px 12px; background: #f6dde0; color: var(--danger); font-weight: 600; font-size: .9rem; border-radius: 10px; }
 .r1-state { margin: 0; text-align: center; color: var(--muted); }
@@ -263,15 +295,14 @@ onMounted(async () => {
 .r1-note-input { min-height: var(--tap); }
 @media (max-width: 420px) { .r1-controls { grid-template-columns: 1fr; } }
 
-.r1-footer { flex: none; padding: 8px 18px 14px; border-top: 1px solid var(--line); background: var(--card); }
-.r1-preview { background: #fff; border: 1.5px solid var(--line); border-radius: 10px; margin-bottom: 6px; }
-.r1-preview summary { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-weight: 700; color: var(--primary-dark); cursor: pointer; list-style: none; }
-.r1-preview summary::-webkit-details-marker { display: none; }
-.r1-sum-label { display: inline-flex; align-items: center; gap: 8px; }
-.r1-preview[open] summary { border-bottom: 1px solid var(--line); }
-.r1-preview-text { margin: 0; padding: 10px 14px; max-height: 180px; overflow: auto; white-space: pre-wrap; font: inherit; font-size: .9rem; }
+.r1-footer { position: relative; flex: none; padding: 8px 18px 12px; border-top: 1px solid var(--line); background: var(--card); }
+.r1-preview { position: absolute; z-index: 10; left: 12px; right: 12px; bottom: calc(100% + 6px); max-height: min(45vh, 320px); overflow: auto; background: #fff; border: 1.5px solid var(--primary); border-radius: 12px; box-shadow: var(--shadow-md); }
+.r1-preview-text { margin: 0; padding: 12px 14px; white-space: pre-wrap; font: inherit; font-size: .9rem; }
+.r1-preview-btn { flex: none; width: 46px; height: 46px; display: inline-flex; align-items: center; justify-content: center; padding: 0; color: var(--primary); background: #fff; border: 1.5px solid var(--primary); border-radius: 12px; cursor: pointer; }
+.r1-preview-btn:hover, .r1-preview-btn[aria-expanded="true"] { background: #e3eef1; }
+.r1-preview-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .r1-actions { display: flex; gap: 10px; }
-.r1-btn { flex: 1; min-height: 46px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; font-weight: 700; line-height: 1; color: #fff; border: 0; border-radius: 12px; box-shadow: var(--shadow-sm); }
+.r1-btn { flex: 1; min-height: 46px; height: 46px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; font-weight: 700; line-height: 1; color: #fff; border: 0; border-radius: 12px; box-shadow: var(--shadow-sm); }
 .r1-btn:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
 .r1-wa { background: linear-gradient(135deg, #25c05f, var(--wa-dark)); }
 </style>

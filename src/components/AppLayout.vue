@@ -2,7 +2,10 @@
   <main class="card">
     <header class="app-header">
       <div class="al-row">
-        <h1>{{ title }}</h1>
+        <div class="al-titles">
+          <h1>{{ title }}</h1>
+          <p v-if="subtitle">{{ subtitle }}</p>
+        </div>
         <div ref="menuEl" class="al-menu">
           <button
             ref="menuBtn"
@@ -25,7 +28,6 @@
           </ul>
         </div>
       </div>
-      <p v-if="subtitle">{{ subtitle }}</p>
     </header>
 
     <nav class="al-tabs" aria-label="ניווט ראשי">
@@ -90,9 +92,14 @@ function onLogout() {
 
 <style scoped>
 .al-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* slim header on every screen: title and subtitle share one line */
+.al-titles { min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 10px; }
+.app-header { padding: 10px 16px; }
+.app-header h1 { font-size: 1.15rem; }
+.app-header p { margin: 0; font-size: .82rem; }
 .al-menu { position: relative; }
 .al-menu-btn {
-  display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; cursor: pointer;
   color: var(--primary-ink); background: rgba(255, 255, 255, .18); border: 1px solid rgba(255, 255, 255, .4);
   border-radius: var(--radius); transition: background-color var(--ease);
 }
@@ -110,7 +117,7 @@ function onLogout() {
 
 .al-tabs { display: flex; flex: none; background: #fff; border-bottom: 1px solid var(--line); box-shadow: var(--shadow-sm); }
 .al-tab {
-  flex: 1; min-width: 0; min-height: 50px; padding: 0 8px;
+  flex: 1; min-width: 0; min-height: 42px; padding: 0 8px;
   display: flex; align-items: center; justify-content: center; gap: 7px;
   font-size: .9rem; font-weight: 600; text-decoration: none; white-space: nowrap;
   color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px;
