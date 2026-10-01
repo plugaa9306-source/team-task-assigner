@@ -2,10 +2,13 @@ import { reactive, computed } from "vue";
 import { loginRequest } from "../services/api.js";
 import { STORAGE_KEY } from "./authStorage.js";
 import { clearSoldiers } from "./soldiers.js";
+import { clearDraft } from "./report1Draft.js";
+import { clearReportOptions } from "./reportOptionsCache.js";
+import { clearSheetCache } from "./sheetCache.js";
 
 export { STORAGE_KEY };
 
-const state = reactive({ token: "", role: "", canEdit: false, isLoading: false });
+const state = reactive({ token: "", role: "", canEdit: false, canReport1: false, isLoading: false });
 
 export const isAuthenticated = computed(() => Boolean(state.token));
 
@@ -19,10 +22,11 @@ function readStored() {
   return null;
 }
 
-function apply({ token = "", role = "", canEdit = false } = {}) {
+function apply({ token = "", role = "", canEdit = false, canReport1 = false } = {}) {
   state.token = token;
   state.role = role;
   state.canEdit = Boolean(canEdit);
+  state.canReport1 = Boolean(canReport1);
 }
 
 // Restore a saved session (call once on startup).
@@ -36,7 +40,12 @@ export async function login(passcode) {
   try {
     const data = await loginRequest(passcode);
     if (!data.success) return { ok: false, error: data.error || data.message || "קוד שגוי" };
-    const session = { token: data.token, role: data.role, canEdit: Boolean(data.canEdit) };
+    const session = {
+      token: data.token,
+      role: data.role,
+      canEdit: Boolean(data.canEdit),
+      canReport1: Boolean(data.canReport1),
+    };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
     } catch {
@@ -44,6 +53,7 @@ export async function login(passcode) {
     }
     apply(session);
     clearSoldiers(); // a new login always refetches the soldiers list
+    clearDraft(); // and never inherits another user's unsaved report
     return { ok: true };
   } finally {
     state.isLoading = false;
@@ -58,6 +68,9 @@ export function logout() {
   }
   apply();
   clearSoldiers();
+  clearDraft();
+  clearReportOptions(); // options and sheet lists are emptied on logout only (not on login)
+  clearSheetCache();
 }
 
 export function useAuth() {
@@ -66,6 +79,7 @@ export function useAuth() {
     isAuthenticated,
     role: computed(() => state.role),
     canEdit: computed(() => state.canEdit),
+    canReport1: computed(() => state.canReport1),
     token: computed(() => state.token),
     isLoading: computed(() => state.isLoading),
     login,

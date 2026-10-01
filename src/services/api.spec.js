@@ -60,3 +60,16 @@ describe("apiCall", () => {
     expect(await apiCall("login", { code: "x" })).toMatchObject({ success: false, error: "תשובה לא תקינה מהשרת" });
   });
 });
+
+describe("apiCall permission-removed errors", () => {
+  afterEach(() => { vi.unstubAllGlobals(); setAuthErrorHandler(() => {}); });
+
+  it("treats a 'הוסרו' error as an auth error", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "tok" }));
+    vi.stubGlobal("fetch", reply({ success: false, error: "ההרשאות שלך הוסרו" }));
+    const handler = vi.fn();
+    setAuthErrorHandler(handler);
+    expect((await apiCall("getSoldiers")).isAuthError).toBe(true);
+    expect(handler).toHaveBeenCalledOnce();
+  });
+});

@@ -4,6 +4,7 @@
     <select
       id="ts-select"
       :value="modelValue"
+      :disabled="disabled"
       @change="$emit('update:modelValue', $event.target.value)"
     >
       <option value="">בחרו משימה…</option>
@@ -17,6 +18,7 @@ import AppIcon from "./AppIcon.vue";
 defineProps({
   tasks: { type: Array, default: () => [] },
   modelValue: { type: String, default: "" },
+  disabled: { type: Boolean, default: false },
 });
 defineEmits(["update:modelValue"]);
 </script>

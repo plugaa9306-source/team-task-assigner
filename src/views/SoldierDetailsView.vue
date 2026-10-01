@@ -1,13 +1,5 @@
 <template>
-  <main class="card sd">
-    <header class="app-header">
-      <div class="sd-header-row">
-        <h1>פרטי חייל</h1>
-        <router-link class="sd-back" :to="{ name: 'main' }">→ לשיבוץ</router-link>
-      </div>
-      <p>חיפוש לפי שם, מ"א או ת"ז</p>
-    </header>
-
+  <AppLayout title="פרטי חייל" subtitle="חיפוש לפי שם, מ&quot;א או ת&quot;ז">
     <div class="sd-body">
       <div class="sd-search">
         <svg class="sd-search-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -108,10 +100,11 @@
         </div>
       </form>
     </div>
-  </main>
+  </AppLayout>
 </template>
 
 <script setup>
+import AppLayout from "../components/AppLayout.vue";
 import { ref, computed, reactive, onMounted, nextTick } from "vue";
 import { useSoldiers, unitOf } from "../lib/soldiers.js";
 import { searchSoldiers } from "../lib/soldierSearch.js";
@@ -233,9 +226,6 @@ function generate() {
 </script>
 
 <style scoped>
-.sd-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.sd-back { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 14px; white-space: nowrap; color: var(--primary-ink); font-size: .85rem; text-decoration: none; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.4); border-radius: var(--radius); transition: background-color var(--ease); }
-.sd-back:hover { background: rgba(255,255,255,.28); }
 .sd-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
 
 .sd-search { position: relative; }

@@ -52,7 +52,9 @@ export async function apiCall(action, params = {}) {
   }
 
   if (!data || typeof data !== "object") return { success: false, error: "תשובה לא תקינה מהשרת" };
-  return data.isAuthError && !PUBLIC_ACTIONS.has(action) ? authFailure(data) : data;
+  // The server flags dead sessions with isAuthError; a "permissions removed" (הוסרו) error means the same.
+  const authError = data.isAuthError || (data.success === false && String(data.error ?? "").includes("הוסרו"));
+  return authError && !PUBLIC_ACTIONS.has(action) ? authFailure({ ...data, isAuthError: true }) : data;
 }
 
 function authFailure(result) {
@@ -62,3 +64,6 @@ function authFailure(result) {
 
 export const loginRequest = (code) => apiCall("login", { code });
 export const getSoldiers = () => apiCall("getSoldiers");
+
+// { success, data: { report1: [{ name, code }], arrivalForecast: [{ name, code }] } }
+export const getReportOptions = () => apiCall("getReportOptions");

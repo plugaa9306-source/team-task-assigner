@@ -17,7 +17,7 @@ describe("auth", () => {
     expect(auth.isAuthenticated.value).toBe(true);
     expect(auth.role.value).toBe("Viewer");
     expect(auth.canEdit.value).toBe(false);
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY))).toEqual({ token: "abc", role: "Viewer", canEdit: false });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY))).toEqual({ token: "abc", role: "Viewer", canEdit: false, canReport1: false });
   });
 
   it("returns the server error and stays logged out on failure", async () => {
@@ -62,6 +62,39 @@ describe("soldiers cache and auth", () => {
     localStorage.setItem("team_app_soldiers", "[]");
     logout();
     expect(localStorage.getItem("team_app_soldiers")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("canReport1", () => {
+  beforeEach(() => { localStorage.clear(); logout(); });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("stores canReport1 with the session and hydrates it", async () => {
+    vi.stubGlobal("fetch", reply({ success: true, token: "t", role: "Manager", canEdit: true, canReport1: true }));
+    await login("1");
+    expect(useAuth().canReport1.value).toBe(true);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).canReport1).toBe(true);
+    logout();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "t", canReport1: true }));
+    hydrate();
+    expect(useAuth().canReport1.value).toBe(true);
+  });
+});
+
+describe("report options cache and auth", () => {
+  it("logout clears the cached report options, login keeps them", async () => {
+    localStorage.setItem("team_app_report_options", "{}");
+    localStorage.setItem("team_app_missions", '["a"]');
+    localStorage.setItem("team_app_roles", '["b"]');
+    vi.stubGlobal("fetch", reply({ success: true, token: "t", role: "Viewer", canEdit: false }));
+    await login("1");
+    expect(localStorage.getItem("team_app_report_options")).toBe("{}");
+    expect(localStorage.getItem("team_app_missions")).toBe('["a"]');
+    logout();
+    expect(localStorage.getItem("team_app_report_options")).toBeNull();
+    expect(localStorage.getItem("team_app_missions")).toBeNull();
+    expect(localStorage.getItem("team_app_roles")).toBeNull();
     vi.unstubAllGlobals();
   });
 });
