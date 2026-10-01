@@ -1,18 +1,23 @@
 <template>
   <AppLayout title="שיבוץ משימה" subtitle="בחרו משימה, שבצו אנשים ושלחו בוואטסאפ">
-    <TaskSelect :tasks="tasks" v-model="task" />
-    <div class="soldiers-bar">
+    <div class="pick-row" :class="{ 'has-unit': showUnit }">
+      <TaskSelect :tasks="tasks" v-model="task" />
+      <label v-if="showUnit" class="unit-field">
+        <span class="unit-label">יחידה</span>
+        <select v-model="unit" class="soldiers-unit" aria-label="סינון לפי יחידה">
+          <option value="">כל היחידות</option>
+          <option v-for="u in units" :key="u" :value="u">{{ u }}</option>
+        </select>
+      </label>
+    </div>
+    <div v-if="soldiersLoading || soldiersError" class="soldiers-bar">
       <p v-if="soldiersLoading" class="soldiers-status" role="status">
         <span class="soldiers-spinner" aria-hidden="true"></span>טוען רשימת חיילים…
       </p>
-      <p v-else-if="soldiersError" class="soldiers-status soldiers-error" role="alert">
+      <p v-else class="soldiers-status soldiers-error" role="alert">
         {{ soldiersError }}
         <button type="button" class="soldiers-retry" @click="loadSoldiers({ force: true })">נסו שוב</button>
       </p>
-      <select v-else-if="units.length > 1" v-model="unit" class="soldiers-unit" aria-label="סינון לפי יחידה">
-        <option value="">כל היחידות</option>
-        <option v-for="u in units" :key="u" :value="u">{{ u }}</option>
-      </select>
     </div>
     <TeamBuilder
       :people="people"
@@ -47,6 +52,7 @@ const {
   load: loadSoldiers,
 } = useSoldiers();
 const unit = ref("");
+const showUnit = computed(() => !soldiersLoading.value && !soldiersError.value && units.value.length > 1);
 const people = computed(() => (unit.value ? soldiersList.value.filter((s) => unitOf(s) === unit.value) : soldiersList.value));
 const roles = ref([]);
 const tasks = ref([]);
@@ -80,20 +86,17 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.soldiers-bar { padding: 0 18px; }
+.soldiers-bar { padding: 0 18px 4px; }
 .soldiers-status { margin: 0 0 6px; display: flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--muted); }
 .soldiers-error { color: var(--danger); font-weight: 600; }
 .soldiers-retry { font: inherit; color: var(--primary); background: none; border: 0; text-decoration: underline; cursor: pointer; }
-.soldiers-unit {
-  width: 100%;
-  min-height: 38px;
-  margin-bottom: 4px;
-  font: inherit;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: #fff;
-  padding: 0 10px;
-}
+/* mission and unit filter share one row */
+.pick-row { display: grid; grid-template-columns: 1fr; gap: 10px; align-items: end; padding: 12px 18px 8px; }
+.pick-row.has-unit { grid-template-columns: 1.5fr 1fr; }
+.pick-row > .task-select { padding: 0; min-width: 0; }
+.unit-field { display: block; min-width: 0; }
+.unit-label { display: block; margin-bottom: 7px; font-weight: 700; color: var(--primary-dark); }
+.soldiers-unit { width: 100%; min-height: var(--tap); font: inherit; border: 1.5px solid var(--line); border-radius: 8px; background-color: #fff; padding-top: 0; padding-bottom: 0; padding-right: 10px; }
 .soldiers-spinner {
   width: 14px;
   height: 14px;
