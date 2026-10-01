@@ -200,6 +200,10 @@ function generate() {
 
 .sd-search { position: relative; }
 .sd-input { width: 100%; min-height: 46px; padding: 0 40px; font: inherit; background: #fff; border: 1.5px solid var(--line); border-radius: var(--radius); }
+/* hide the browser's built-in clear (✕) so only our own button shows */
+.sd-input { appearance: none; -webkit-appearance: none; }
+.sd-input::-webkit-search-cancel-button,
+.sd-input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
 .sd-input:focus-visible { outline: none; border-color: var(--primary-light); box-shadow: 0 0 0 3px rgba(44,125,149,.25); }
 .sd-search-icon { position: absolute; inset-inline-start: 13px; top: 14px; color: var(--muted); pointer-events: none; }
 .sd-clear { position: absolute; inset-inline-end: 6px; top: 6px; width: 34px; height: 34px; border: 0; background: none; color: var(--muted); font-size: 1rem; cursor: pointer; }
