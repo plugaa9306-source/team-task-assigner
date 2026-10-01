@@ -15,7 +15,7 @@
       >
         <AppIcon name="chat" :size="22" />
       </button>
-      <button type="button" class="ws-share" :disabled="!ready" @click="share"><AppIcon name="whatsapp" :size="19" />שלח דוח משימה בוואטסאפ</button>
+      <button type="button" class="ws-share" :disabled="!ready" @click="share"><AppIcon name="whatsapp" :size="19" />שלח דוח משימה</button>
       <button
         type="button"
         class="ws-group"

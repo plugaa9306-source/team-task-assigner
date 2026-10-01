@@ -60,9 +60,9 @@ describe("WhatsappShare layout", () => {
   const m2 = [{ firstName: "א", lastName: "ב", id: "1", role: "נהג", phone: "" }];
   const shown = (w) => !(w.find(".ws-preview").attributes("style") ?? "").includes("display: none");
 
-  it("labels the share button 'שלח דוח משימה בוואטסאפ'", () => {
+  it("labels the share button 'שלח דוח משימה'", () => {
     const w = mount(WhatsappShare, { props: { task: "t", members: m2, allComplete: true, template: tpl2 } });
-    expect(w.find(".ws-share").text()).toBe("שלח דוח משימה בוואטסאפ");
+    expect(w.find(".ws-share").text()).toBe("שלח דוח משימה");
   });
 
   it("has the preview toggle, share and group buttons on one row", () => {
