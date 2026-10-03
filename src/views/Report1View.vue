@@ -14,11 +14,11 @@
             </select>
           </label>
           <label class="r1-field">
-            <span>בחירת תאריך</span>
+            <span>תאריך</span>
             <input type="date" class="r1-date" :value="date" :min="today" aria-label="בחירת תאריך" :disabled="controlsDisabled" @change="onDate">
           </label>
           <label class="r1-field">
-            <span>בחירת מחלקה</span>
+            <span>מחלקה</span>
             <select v-model="unit" class="r1-unit" aria-label="בחירת מחלקה" :disabled="controlsDisabled">
               <option value="" disabled>בחרו מחלקה…</option>
               <option v-for="u in units" :key="u" :value="u">{{ u }}</option>
@@ -107,7 +107,7 @@
             <AppIcon name="chat" :size="22" />
           </button>
           <button type="button" class="r1-btn r1-wa" :disabled="controlsDisabled || !unit || !unitSoldiers.length" @click="shareWhatsapp">
-            <AppIcon name="whatsapp" :size="20" />שלח בוואטסאפ
+            <AppIcon name="whatsapp" :size="20" />שלח דוח
           </button>
         </div>
       </footer>
@@ -121,12 +121,12 @@ import AppLayout from "../components/AppLayout.vue";
 import AppIcon from "../components/AppIcon.vue";
 import { useSoldiers, unitOf } from "../lib/soldiers.js";
 import { whatsappTextUrl, whatsappChatUrl, telUrl } from "../lib/soldierUpdate.js";
-import { getReportOptions } from "../services/api.js";
+import { getReportOptions, syncReportInBackground } from "../services/api.js";
 import { statusStyle, mapHebrewColorToCss } from "../lib/statusColors.js";
 import { loadDraft, saveDraft } from "../lib/report1Draft.js";
 import { loadReportOptions, saveReportOptions } from "../lib/reportOptionsCache.js";
 import {
-  REPORT_TYPES, DEFAULT_TYPE, typeOf, rowKey, fullName, entryOf, computeStats, buildSummary, statusesFromData, todayISO, formatDate,
+  REPORT_TYPES, DEFAULT_TYPE, typeOf, rowKey, fullName, entryOf, computeStats, buildSummary, buildSyncPayload, statusesFromData, todayISO, formatDate,
 } from "../lib/report1.js";
 
 const { soldiersList, isLoading, error, units, load } = useSoldiers();
@@ -237,8 +237,11 @@ onUnmounted(() => {
   document.removeEventListener("keydown", onKey);
 });
 
+// WhatsApp opens first and instantly; the sheet update is fired afterwards in the background
+// (not awaited, no UI, failures only logged).
 function shareWhatsapp() {
   window.open(whatsappTextUrl(previewText.value), "_blank", "noopener");
+  syncReportInBackground(buildSyncPayload(unitSoldiers.value, entries.value, type.value, date.value, unit.value));
 }
 
 watch([type, unit, store], () => saveDraft({ type: type.value, unit: unit.value, store }), { deep: true });
@@ -252,20 +255,30 @@ onMounted(async () => {
 
 <style scoped>
 .r1 { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.r1-head { flex: none; padding: 10px 18px 8px; display: flex; flex-direction: column; gap: 8px; }
+.r1-head { flex: none; padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 8px; }
 /* only the list of names scrolls; selectors and counters stay in view */
-.r1-scroll { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); padding: 12px 18px 14px; display: flex; flex-direction: column; gap: 12px; overscroll-behavior: contain; }
+.r1-scroll { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); padding: 12px 10px 14px; display: flex; flex-direction: column; gap: 12px; overscroll-behavior: contain; }
 /* children must keep their natural height; the column scrolls instead of squeezing them */
 .r1-scroll > * { flex-shrink: 0; }
 
 .r1-selectors { display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 8px; }
 .r1-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: .72rem; font-weight: 700; color: var(--primary-dark); }
-.r1-field select { min-height: 38px; padding: 4px 8px 4px 28px; background-position: left 6px center; font-size: .88rem; }
-@media (max-width: 400px) { .r1-selectors { grid-template-columns: 1fr 1fr; } .r1-selectors .r1-field:last-child { grid-column: 1 / -1; } }
-.r1-date { min-height: 38px; font-size: .88rem; width: 100%; padding: 0 10px; font: inherit; font-weight: 400; background: #fff; border: 1.5px solid var(--line); border-radius: 8px; }
+.r1-field select { min-height: 38px; padding: 4px 8px 4px 28px; background-position: left 6px center; }
+.r1-date { min-height: 38px; width: 100%; padding: 0 10px; background: #fff; border: 1.5px solid var(--line); border-radius: 8px; }
 .r1-date:focus-visible { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px rgba(232, 163, 23, .28); }
+/* the date and the dropdowns share one text size and weight */
+.r1-field select, .r1-date { font: inherit; font-size: .88rem; font-weight: 700; }
+/* all three selectors stay on one line, even on narrow phones */
+@media (max-width: 440px) {
+  .r1-selectors { gap: 6px; }
+  .r1-field { font-size: .68rem; }
+  .r1-field select, .r1-date { font-size: .78rem; }
+  .r1-field select { padding: 4px 6px 4px 22px; background-position: left 4px center; background-size: 14px; }
+  .r1-date { padding: 0 4px; }
+}
 
-.r1-kpis { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+/* one line when it fits; otherwise the counters wrap onto the next line */
+.r1-kpis { display: flex; flex-wrap: wrap; gap: 6px; }
 .r1-kpi { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 11px; background: #fff; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
 .r1-kpi-num { font-size: 1rem; font-weight: 800; line-height: 1; color: var(--primary-dark); }
 .r1-kpi-label { font-size: .76rem; color: var(--muted); }
@@ -281,8 +294,8 @@ onMounted(async () => {
 .r1-error { color: var(--danger); font-weight: 600; }
 .r1-link { font: inherit; color: var(--primary); background: none; border: 0; text-decoration: underline; min-height: 0; }
 
-.r1-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
-.r1-row { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: #fff; border: 1px solid var(--line); border-inline-start: 5px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-sm); }
+.r1-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.r1-row { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; background: #fff; border: 1px solid var(--line); border-inline-start: 5px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-sm); }
 .r1-name { font-weight: 700; color: var(--ink); }
 .r1-row-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .r1-quick { display: flex; gap: 8px; flex: none; }
@@ -295,7 +308,7 @@ onMounted(async () => {
 .r1-note-input { min-height: var(--tap); }
 @media (max-width: 420px) { .r1-controls { grid-template-columns: 1fr; } }
 
-.r1-footer { position: relative; flex: none; padding: 8px 18px 12px; border-top: 1px solid var(--line); background: var(--card); }
+.r1-footer { position: relative; flex: none; padding: 8px 11px 12px; border-top: 1px solid var(--line); background: var(--card); }
 .r1-preview { position: absolute; z-index: 10; left: 12px; right: 12px; bottom: calc(100% + 6px); max-height: min(45vh, 320px); overflow: auto; background: #fff; border: 1.5px solid var(--primary); border-radius: 12px; box-shadow: var(--shadow-md); }
 .r1-preview-text { margin: 0; padding: 12px 14px; white-space: pre-wrap; font: inherit; font-size: .9rem; }
 .r1-preview-btn { flex: none; width: 46px; height: 46px; display: inline-flex; align-items: center; justify-content: center; padding: 0; color: var(--primary); background: #fff; border: 1.5px solid var(--primary); border-radius: 12px; cursor: pointer; }

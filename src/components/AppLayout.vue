@@ -92,8 +92,8 @@ function onLogout() {
 
 <style scoped>
 .al-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-/* slim header on every screen: title and subtitle share one line */
-.al-titles { min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 10px; }
+/* slim header on every screen: title above the subtitle, always on two lines */
+.al-titles { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .app-header { padding: 10px 16px; }
 .app-header h1 { font-size: 1.15rem; }
 .app-header p { margin: 0; font-size: .82rem; }

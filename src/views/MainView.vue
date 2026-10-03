@@ -3,9 +3,9 @@
     <div class="pick-row" :class="{ 'has-unit': showUnit }">
       <TaskSelect :tasks="tasks" v-model="task" />
       <label v-if="showUnit" class="unit-field">
-        <span class="unit-label">יחידה</span>
-        <select v-model="unit" class="soldiers-unit" aria-label="סינון לפי יחידה">
-          <option value="">כל היחידות</option>
+        <span class="unit-label">מחלקה</span>
+        <select v-model="unit" class="soldiers-unit" aria-label="סינון לפי מחלקה">
+          <option value="">כל המחלקות</option>
           <option v-for="u in units" :key="u" :value="u">{{ u }}</option>
         </select>
       </label>
@@ -91,12 +91,17 @@ onMounted(async () => {
 .soldiers-error { color: var(--danger); font-weight: 600; }
 .soldiers-retry { font: inherit; color: var(--primary); background: none; border: 0; text-decoration: underline; cursor: pointer; }
 /* mission and unit filter share one row */
-.pick-row { display: grid; grid-template-columns: 1fr; gap: 10px; align-items: end; padding: 12px 18px 8px; }
+.pick-row { display: grid; grid-template-columns: 1fr; gap: 10px; align-items: end; padding: 10px 10px 8px; }
 .pick-row.has-unit { grid-template-columns: 1.5fr 1fr; }
 .pick-row > .task-select { padding: 0; min-width: 0; }
 .unit-field { display: block; min-width: 0; }
-.unit-label { display: block; margin-bottom: 7px; font-weight: 700; color: var(--primary-dark); }
-.soldiers-unit { width: 100%; min-height: var(--tap); font: inherit; border: 1.5px solid var(--line); border-radius: 8px; background-color: #fff; padding-top: 0; padding-bottom: 0; padding-right: 10px; }
+.unit-label { display: block; margin-bottom: 3px; font-size: .72rem; font-weight: 700; color: var(--primary-dark); }
+/* same dropdown styling as the Report 1 selectors */
+.soldiers-unit { width: 100%; min-height: 38px; padding: 4px 8px 4px 28px; background-position: left 6px center; font: inherit; font-size: .88rem; font-weight: 700; border: 1.5px solid var(--line); border-radius: 8px; background-color: #fff; }
+@media (max-width: 440px) {
+  .unit-label { font-size: .68rem; }
+  .soldiers-unit { padding: 4px 6px 4px 22px; background-position: left 4px center; background-size: 14px; font-size: .78rem; }
+}
 .soldiers-spinner {
   width: 14px;
   height: 14px;

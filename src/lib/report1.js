@@ -2,8 +2,8 @@ import { NO_ID } from "./person.js";
 
 // The status choices of each report come from the server (`getReportOptions`), keyed by `optionsKey`.
 export const REPORT_TYPES = [
-  { key: "report1", label: 'דו"ח 1', optionsKey: "report1" },
-  { key: "arrival", label: "צפי הגעה", optionsKey: "arrivalForecast", aliases: ["arrival", "arrival_forecast"] },
+  { key: "report1", label: 'דו"ח 1', optionsKey: "report1", syncName: "דוח 1" },
+  { key: "arrival", label: "צפי הגעה", optionsKey: "arrivalForecast", aliases: ["arrival", "arrival_forecast"], syncName: "צפי הגעה" },
 ];
 export const DEFAULT_TYPE = "report1";
 export const UNREPORTED_LABEL = "לא דווח";
@@ -97,4 +97,24 @@ export function buildSummary(soldiers, entries, typeKey, dateISO, unit, statuses
   if (stats.unreported) summary.push(`• ${UNREPORTED_LABEL}: ${stats.unreported}`);
 
   return [`📋 *${type.label} – ${unit} – ${formatDate(dateISO)}*`, "", ...lines, "", "*סיכום כללי*", ...summary].join("\n");
+}
+
+// dd/mm/yyyy, the date format the sheet sync expects.
+export function formatSyncDate(iso) {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+// Payload for the background Google Sheets sync. `status` is the single-character option code
+// (the select values already are the codes). Soldiers with no status yet are left out.
+export function buildSyncPayload(soldiers, entries, typeKey, dateISO, unit) {
+  return {
+    reportType: typeOf(typeKey).syncName,
+    department: unit,
+    date: formatSyncDate(dateISO),
+    reports: soldiers
+      .map((s) => ({ s, status: entryOf(entries, s).status }))
+      .filter(({ status }) => status)
+      .map(({ s, status }) => ({ firstName: s.firstName, lastName: s.lastName, status })),
+  };
 }
