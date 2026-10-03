@@ -83,7 +83,7 @@ describe("AppLayout", () => {
     expect(menuShown(w)).toBe(false);
   });
 
-  it("shows the title and subtitle together in one titles block on every screen", async () => {
+  it("shows the title and subtitle stacked in one titles block on every screen", async () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "t" }));
     hydrate();
     const router = makeRouter();

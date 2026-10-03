@@ -11,8 +11,8 @@ vi.mock("../lib/soldiers.js", async (orig) => ({
   ...(await orig()),
   useSoldiers: () => ({ soldiersList: list, isLoading: ref(false), error: ref(""), units: ref(["מחלקה 1", "מחלקה 2"]), load: vi.fn() }),
 }));
-vi.mock("../services/api.js", () => ({ getReportOptions: vi.fn() }));
-import { getReportOptions } from "../services/api.js";
+vi.mock("../services/api.js", () => ({ getReportOptions: vi.fn(), syncReportInBackground: vi.fn() }));
+import { getReportOptions, syncReportInBackground } from "../services/api.js";
 import Report1View from "./Report1View.vue";
 import { STORAGE_KEY, hydrate, logout } from "../lib/auth.js";
 import { todayISO } from "../lib/report1.js";
@@ -48,6 +48,7 @@ describe("Report1View", () => {
     localStorage.clear();
     logout();
     getReportOptions.mockReset().mockResolvedValue(OPTIONS);
+    syncReportInBackground.mockReset();
   });
 
   it("defaults to דו\"ח 1 and today, with no unit selected and nobody listed", async () => {
@@ -251,10 +252,50 @@ describe("Report1View", () => {
     open.mockRestore();
   });
 
+  it("opens WhatsApp first and then syncs the report to the sheet in the background", async () => {
+    const order = [];
+    const open = vi.spyOn(window, "open").mockImplementation(() => { order.push("open"); return null; });
+    syncReportInBackground.mockImplementation(() => order.push("sync"));
+    const w = await mountView();
+    await w.findAll(".r1-status")[0].setValue("מ");
+    await w.findAll(".r1-status")[1].setValue("ב");
+    await w.find(".r1-wa").trigger("click");
+    expect(order).toEqual(["open", "sync"]); // WhatsApp first, sync second, nothing awaited
+    const payload = syncReportInBackground.mock.calls[0][0];
+    expect(payload).toEqual({
+      reportType: "דוח 1",
+      department: "מחלקה 1",
+      date: payload.date,
+      reports: [
+        { firstName: "דוד", lastName: "כהן", status: "מ" },
+        { firstName: "משה", lastName: "לוי", status: "ב" },
+      ],
+    });
+    expect(payload.date).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
+    expect(w.find(".r1-alert").exists()).toBe(false); // no UI feedback for the sync
+    open.mockRestore();
+  });
+
+  it("uses the arrival forecast name in the sync payload", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const w = await mountView();
+    await w.find(".r1-field select").setValue("arrival");
+    await w.findAll(".r1-status")[0].setValue("מ");
+    await w.find(".r1-wa").trigger("click");
+    expect(syncReportInBackground.mock.calls[0][0].reportType).toBe("צפי הגעה");
+    open.mockRestore();
+  });
+
+  it("labels the send button 'שלח דוח'", async () => {
+    const w = await mountView();
+    expect(w.find(".r1-wa").text()).toBe("שלח דוח");
+  });
+
   it("uses a compact layout: header, one-row selectors, one-line counters, merged footer", async () => {
     const w = await mountView();
     expect(w.findAll(".r1-selectors > .r1-field")).toHaveLength(3);          // type, date, platoon in one grid row
-    expect(w.find(".r1-kpis").element.className).toBe("r1-kpis");           // flex strip of chips
+    expect(w.find(".r1-selectors").element.parentElement.querySelector(".r1-field-wide")).toBeNull(); // no field wraps onto its own line
+    expect(w.find(".r1-kpis").element.className).toBe("r1-kpis");           // flex row of chips that wraps when full
     expect(w.findAll(".r1-kpi").every((k) => k.find(".r1-kpi-label").exists())).toBe(true);
     const actions = w.find(".r1-footer .r1-actions");
     expect(actions.findAll("button")).toHaveLength(2);                       // preview toggle + WhatsApp on one row

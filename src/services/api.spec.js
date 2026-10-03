@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { apiCall, setAuthErrorHandler, API_URL } from "./api.js";
+import { apiCall, setAuthErrorHandler, syncReportInBackground, API_URL } from "./api.js";
 import { STORAGE_KEY } from "../lib/authStorage.js";
 
 const reply = (body) => vi.fn().mockResolvedValue({ ok: true, json: async () => body });
@@ -71,5 +71,34 @@ describe("apiCall permission-removed errors", () => {
     setAuthErrorHandler(handler);
     expect((await apiCall("getSoldiers")).isAuthError).toBe(true);
     expect(handler).toHaveBeenCalledOnce();
+  });
+});
+
+describe("syncReportInBackground", () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("fires a no-cors text/plain POST without awaiting and returns nothing", () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "tok" }));
+    const fetchMock = vi.fn().mockReturnValue(new Promise(() => {})); // never settles: must not block
+    vi.stubGlobal("fetch", fetchMock);
+    const result = syncReportInBackground({ reportType: "דוח 1", department: "מחלקה 1", date: "03/10/2026", reports: [] });
+    expect(result).toBeUndefined();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(API_URL);
+    expect(init).toMatchObject({ method: "POST", mode: "no-cors", keepalive: true, headers: { "Content-Type": "text/plain" } });
+    expect(JSON.parse(init.body)).toEqual({ reportType: "דוח 1", department: "מחלקה 1", date: "03/10/2026", reports: [], token: "tok" });
+  });
+
+  it("only logs failures to the console and never throws", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    expect(() => syncReportInBackground({ reports: [] })).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(err).toHaveBeenCalled();
+    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("sync boom"); }));
+    expect(() => syncReportInBackground({ reports: [] })).not.toThrow();
+    expect(err).toHaveBeenCalledTimes(2);
+    err.mockRestore();
   });
 });

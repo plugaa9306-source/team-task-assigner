@@ -136,7 +136,7 @@ async function share() {
   position: relative;
   display: block;
   flex: none;
-  padding: 14px 18px calc(16px + env(safe-area-inset-bottom, 0px));
+  padding: 14px 10px calc(16px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--line);
 }
 

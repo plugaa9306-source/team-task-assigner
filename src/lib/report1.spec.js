@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  computeStats, buildSummary, rowKey, todayISO, formatDate, normalizeOptions, statusesFromData, statusLabel, REPORT_TYPES,
+  computeStats, buildSummary, buildSyncPayload, formatSyncDate, rowKey, todayISO, formatDate, normalizeOptions, statusesFromData, statusLabel, REPORT_TYPES,
 } from "./report1.js";
 
 const A = { id: "1", firstName: "דוד", lastName: "כהן", unit: "מחלקה 1", tabName: "" };
@@ -85,5 +85,25 @@ describe("dates", () => {
   it("formats dates", () => {
     expect(todayISO(new Date(2026, 9, 1))).toBe("2026-10-01");
     expect(formatDate("2026-10-01")).toBe("01.10.2026");
+  });
+});
+
+describe("buildSyncPayload", () => {
+  it("builds the sheet payload with option codes, the dd/mm/yyyy date and only reported soldiers", () => {
+    const entries = { [rowKey(A)]: { status: "מ", note: "x" }, [rowKey(B)]: { status: "ב", note: "" } };
+    expect(buildSyncPayload(all, entries, "report1", "2026-10-03", "מחלקה 1")).toEqual({
+      reportType: "דוח 1",
+      department: "מחלקה 1",
+      date: "03/10/2026",
+      reports: [
+        { firstName: "דוד", lastName: "כהן", status: "מ" },
+        { firstName: "משה", lastName: "לוי", status: "ב" },
+      ],
+    });
+  });
+
+  it("uses the arrival forecast name and formats dates", () => {
+    expect(buildSyncPayload([A], { [rowKey(A)]: { status: "ש", note: "" } }, "arrival", "2026-12-01", "מחלקה 1").reportType).toBe("צפי הגעה");
+    expect(formatSyncDate("2026-10-03")).toBe("03/10/2026");
   });
 });

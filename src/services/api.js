@@ -67,3 +67,21 @@ export const getSoldiers = () => apiCall("getSoldiers");
 
 // { success, data: { report1: [{ name, code }], arrivalForecast: [{ name, code }] } }
 export const getReportOptions = () => apiCall("getReportOptions");
+
+// "Send and forget" sheet sync: fired without awaiting and without any UI. no-cors + text/plain avoids the
+// CORS preflight (the response is opaque and unread); failures are only logged to the console.
+// `keepalive` lets the request finish even if the page is backgrounded when WhatsApp opens.
+export function syncReportInBackground(payload) {
+  try {
+    const token = getStoredToken();
+    fetch(API_URL, {
+      method: "POST",
+      mode: "no-cors",
+      keepalive: true,
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ ...payload, ...(token ? { token } : {}) }),
+    }).catch((err) => console.error("Report sync failed:", err));
+  } catch (err) {
+    console.error("Report sync failed:", err);
+  }
+}
