@@ -8,7 +8,9 @@ import { clearSheetCache } from "./sheetCache.js";
 
 export { STORAGE_KEY };
 
-const state = reactive({ token: "", role: "", canEdit: false, canReport1: false, isLoading: false });
+// canUpdate1 / updateDepartments: which departments the user may update (null = all). Unknown (older server) = all.
+// canView1 / viewDepartments: access to the "View Report 1" tab (null = all departments). Unknown (older server) = no access.
+const state = reactive({ token: "", role: "", canEdit: false, canReport1: false, canUpdate1: true, updateDepartments: null, canView1: false, viewDepartments: null, isLoading: false });
 
 export const isAuthenticated = computed(() => Boolean(state.token));
 
@@ -22,11 +24,15 @@ function readStored() {
   return null;
 }
 
-function apply({ token = "", role = "", canEdit = false, canReport1 = false } = {}) {
+function apply({ token = "", role = "", canEdit = false, canReport1 = false, canUpdate1 = true, updateDepartments = null, canView1 = false, viewDepartments = null } = {}) {
   state.token = token;
   state.role = role;
   state.canEdit = Boolean(canEdit);
   state.canReport1 = Boolean(canReport1);
+  state.canUpdate1 = canUpdate1 !== false;
+  state.updateDepartments = Array.isArray(updateDepartments) ? updateDepartments : null;
+  state.canView1 = canView1 === true;
+  state.viewDepartments = Array.isArray(viewDepartments) ? viewDepartments : null;
 }
 
 // Restore a saved session (call once on startup).
@@ -45,6 +51,10 @@ export async function login(passcode) {
       role: data.role,
       canEdit: Boolean(data.canEdit),
       canReport1: Boolean(data.canReport1),
+      canUpdate1: data.canUpdate1 !== false,
+      updateDepartments: Array.isArray(data.updateDepartments) ? data.updateDepartments : null,
+      canView1: data.canView1 === true,
+      viewDepartments: Array.isArray(data.viewDepartments) ? data.viewDepartments : null,
     };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
@@ -80,6 +90,10 @@ export function useAuth() {
     role: computed(() => state.role),
     canEdit: computed(() => state.canEdit),
     canReport1: computed(() => state.canReport1),
+    canUpdate1: computed(() => state.canUpdate1),
+    updateDepartments: computed(() => state.updateDepartments),
+    canView1: computed(() => state.canView1),
+    viewDepartments: computed(() => state.viewDepartments),
     token: computed(() => state.token),
     isLoading: computed(() => state.isLoading),
     login,

@@ -85,3 +85,8 @@ export function syncReportInBackground(payload) {
     console.error("Report sync failed:", err);
   }
 }
+
+// Read-only report viewing. params: { reportType: "דוח 1" | "צפי הגעה", date: "dd/mm/yyyy", department?: string }
+// -> { success, hasData, options, overall, departments: [{ name, total, reported, unreported, counts }], details }
+export const getReportView = (params) => apiCall("getReportView", params);
+

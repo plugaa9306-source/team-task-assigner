@@ -32,8 +32,8 @@ const OPTIONS = {
 
 const layoutStub = { props: ["title", "subtitle"], template: "<div><h1>{{ title }}</h1><slot /></div>" };
 
-async function mountView({ canEdit = true, pickUnit = true } = {}) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "t", canEdit, canReport1: true }));
+async function mountView({ canEdit = true, pickUnit = true, access = {} } = {}) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "t", canEdit, canReport1: true, ...access }));
   hydrate();
   const w = mount(Report1View, { global: { stubs: { AppLayout: layoutStub } } });
   await flushPromises();
@@ -250,6 +250,62 @@ describe("Report1View", () => {
     const text = decodeURIComponent(open.mock.calls[0][0]);
     expect(text).toContain('דו"ח 1 – מחלקה 1');
     open.mockRestore();
+  });
+
+  describe("department dropdown lists only what the user may update", () => {
+    const unitOptions = (w) => w.findAll(".r1-unit option").slice(1).map((o) => o.text());
+
+    it("all departments when canUpdate1 is TRUE", async () => {
+      const w = await mountView({ pickUnit: false, access: { canUpdate1: true, updateDepartments: null } });
+      expect(unitOptions(w)).toEqual(["מחלקה 1", "מחלקה 2"]);
+    });
+
+    it("only the listed departments (matched loosely, e.g. 'מחלקה1')", async () => {
+      const w = await mountView({ pickUnit: false, access: { canUpdate1: true, updateDepartments: ["מחלקה1"] } });
+      expect(unitOptions(w)).toEqual(["מחלקה 1"]);
+      expect(w.find(".r1-unit").attributes("disabled")).toBeDefined(); // a single option is locked (see below)
+    });
+
+    it("nothing, with a disabled dropdown and a message, when the user may not update anything", async () => {
+      const w = await mountView({ pickUnit: false, access: { canUpdate1: false, updateDepartments: [] } });
+      expect(unitOptions(w)).toEqual([]);
+      expect(w.find(".r1-unit").attributes("disabled")).toBeDefined();
+      expect(w.find(".r1-unit option").text()).toBe("אין מחלקות לעדכון");
+    });
+
+    it("selects the only allowed department automatically and locks the dropdown", async () => {
+      const w = await mountView({ pickUnit: false, access: { canUpdate1: true, updateDepartments: ["מחלקה 1"] } });
+      expect(w.find(".r1-unit").element.value).toBe("מחלקה 1");
+      expect(w.find(".r1-unit").attributes("disabled")).toBeDefined();
+      expect(w.find(".r1-unit").classes()).toContain("is-locked");
+      expect(w.findAll(".r1-row")).toHaveLength(2);                 // the soldiers of that department are already listed
+      expect(w.findAll(".r1-kpi-num")[0].text()).toBe("2");
+    });
+
+    it("the lone department wins over a different remembered one", async () => {
+      localStorage.setItem("team_app_report1", JSON.stringify({ type: "report1", unit: "מחלקה 2", store: {} }));
+      const w = await mountView({ pickUnit: false, access: { canUpdate1: true, updateDepartments: ["מחלקה 1"] } });
+      expect(w.find(".r1-unit").element.value).toBe("מחלקה 1");
+    });
+
+    it("keeps the dropdown enabled and unselected when there are several allowed departments", async () => {
+      const w = await mountView({ pickUnit: false, access: { canUpdate1: true, updateDepartments: ["מחלקה 1", "מחלקה 2"] } });
+      expect(w.find(".r1-unit").element.value).toBe("");
+      expect(w.find(".r1-unit").attributes("disabled")).toBeUndefined();
+      expect(w.find(".r1-unit").classes()).not.toContain("is-locked");
+    });
+
+    it("a user with access to all departments still picks one (two exist), nothing is preselected", async () => {
+      const w = await mountView({ pickUnit: false, access: { canUpdate1: true, updateDepartments: null } });
+      expect(w.find(".r1-unit").element.value).toBe("");
+    });
+
+    it("forgets a remembered department the user may no longer update", async () => {
+      localStorage.setItem("team_app_report1", JSON.stringify({ type: "report1", unit: "מחלקה 3", store: {} }));
+      const w = await mountView({ pickUnit: false, access: { canUpdate1: true, updateDepartments: ["מחלקה 1", "מחלקה 2"] } });
+      expect(w.find(".r1-unit").element.value).toBe("");
+      expect(w.findAll(".r1-row")).toHaveLength(0);
+    });
   });
 
   it("opens WhatsApp first and then syncs the report to the sheet in the background", async () => {

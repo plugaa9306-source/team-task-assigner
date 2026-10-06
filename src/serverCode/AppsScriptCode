@@ -1,0 +1,919 @@
+// =====================================================================
+//  Apps Script - שיבוץ משימה / דוח 1 / צפי הגעה
+//
+//  הפעולות (action) ב-doPost:
+//    login               - ללא טוקן, מחזיר טוקן חתום + הרשאות
+//    getSoldiers         - כל משתמש מחובר
+//    getReportOptions    - דורש canReport1
+//    getReportView       - צפייה בדיווחים (קריאה בלבד): דורש canView1, ובמחלקות המותרות בלבד
+//    submitMatzalReport  - דורש canReport1 + canUpdate1 (לשני סוגי הדיווח: דוח 1 וצפי הגעה),
+//                          ובנוסף המחלקה המדווחת חייבת להיות מותרת למשתמש (ראו להלן)
+//
+//  עמודות canUpdate1 ו-canView1 בגיליון ההרשאות (אותם כללים לשתיהן):
+//    TRUE (או כן / 1)         - כל המחלקות
+//    FALSE / ריק              - אין הרשאה בכלל
+//    שם מחלקה או רשימה        - רק במחלקות שצוינו, מופרדות בפסיק (למשל: מחלקה 1, מחלקה 2).
+//                               בקשה למחלקה אחרת נדחית בשגיאת הרשאה
+//
+//  שגיאות מחזירות תמיד { success:false, error } ובנוסף:
+//    isAuthError: true        - אין/פג/לא תקין טוקן (האפליקציה מתנתקת)
+//    isPermissionError: true  - המשתמש מחובר אך חסרה לו הרשאה (האפליקציה לא מתנתקת)
+//
+//  שורות שנדחו בדיווח מוחזרות ב-skipped כרשימה של { name, reason, message }:
+//    empty_name | empty_status | invalid_status
+//  אם המערכת עסוקה (נעילה) התשובה כוללת isBusy: true - אפשר לנסות שוב.
+//
+//  הפעלה ראשונה: להריץ פעם אחת את setupTokenSecret(), authorizeScopes() ו-installCacheTriggers(),
+//  ואז Deploy > Manage deployments > New version.
+//  אחרי עריכה בגיליונות: installCacheTriggers() מנקה את המטמון אוטומטית (או clearCaches() ידנית).
+// =====================================================================
+
+// ===== הגדרות =====
+const CONFIG = {
+  PERMISSIONS: {
+    SPREADSHEET_ID: '1aAf9EWKG7BoCX9_zG6X3naXSApMlMKWrhAg23ltm7gU',
+    SHEET_NAME: 'גיליון1',
+    // אינדקסי עמודות (מ-0): A=קוד, B=תפקיד, C=עריכה, D=דוח 1, E=עדכון, F=צפייה (TRUE / FALSE / רשימת מחלקות)
+    COLUMNS: { code: 0, role: 1, canEdit: 2, canReport1: 3, canUpdate1: 4, canView1: 5 }
+  },
+  SOLDIERS: {
+    SPREADSHEET_ID: '1YWmqukCrSYmDy40rD0LuOeumnOfYzypaSZd08-6Iyx4',
+    SKIP_SHEETS: ['סיכום', 'הרשאות'],
+    HEADER_ROW_INDEX: 1 // שורת הכותרות היא השורה השנייה
+  },
+  OPTIONS: {
+    SPREADSHEET_ID: '1f8UFNxGHjIabhkH5oW56J722bsj6fesNgyseY1sDXvw',
+    RANGE: 'A1:E30' // B=שם, C=קוד, D=צבע
+  }
+};
+
+// סוגי דיווח. אותן הרשאות לשניהם (ראו ACTIONS): צפייה = canReport1, עדכון = canReport1 + canUpdate1
+const REPORT_TYPES = {
+  report1: {
+    name: 'דוח 1',
+    optionsKey: 'report1',
+    fileId: '1eN3M6Onp9egtpJdj58jlcLkvL5_Ce5SYC1Z5UZFm9vE'
+  },
+  arrival: {
+    name: 'צפי הגעה',
+    optionsKey: 'arrivalForecast',
+    fileId: '1W0IhDjhsoOa77dO-diLfVL9Jp2q-CxDSJct5K7D9v6Q'
+  }
+};
+
+// הרשאות נדרשות לכל פעולה (מקום אחד לכל בדיקות ההרשאה)
+const ACTIONS = {
+  getSoldiers:        { requires: [],             handler: function () { return getSoldiersData(); } },
+  getReportOptions:   { requires: ['canReport1'], handler: function () { return getReportOptions(); } },
+  getReportView:      { requires: ['canView1'],   handler: function (data, auth) { return handleReportView(data, auth); } },
+  submitMatzalReport: { requires: ['canReport1', 'canUpdate1'], handler: function (data, auth) { return handleMatzalUpdate(data, auth); } }
+};
+
+const PERMISSION_LABELS = {
+  canEdit: 'עריכה',
+  canReport1: 'דיווח דוח 1 / צפי הגעה',
+  canUpdate1: 'עדכון דיווחים (דוח 1 / צפי הגעה)',
+  canView1: 'צפייה בדיווחים'
+};
+
+const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;   // 30 יום
+const TOKEN_CLOCK_SKEW_MS = 5 * 60 * 1000;       // סטיית שעון מותרת
+const LOCK_WAIT_MS = 15000;                      // כמה זמן מחכים לנעילת הכתיבה לפני שמחזירים "עסוק"
+const MAX_BODY_CHARS = 200000;
+const MAX_REPORT_ROWS = 1000;
+const MAX_LOGIN_FAILURES = 20;                   // כשלונות התחברות בחלון זמן
+const LOGIN_FAILURE_WINDOW_SEC = 300;
+const PERMISSIONS_CACHE_SEC = 60;                // השהיית ביטול הרשאה מקסימלית
+const SOLDIERS_CACHE_SEC = 300;
+const OPTIONS_CACHE_SEC = 600;
+const CACHE_VALUE_LIMIT = 90000;                 // מגבלת CacheService היא 100KB לערך
+
+const CACHE_KEYS = {
+  permissions: 'perm_table_v3', // הגרסה עלתה כשנוסף updateDepartments, כדי שמטמון ישן לא יישאר בתוקף אחרי פריסה
+  soldiers: 'soldiers_v1',
+  options: 'options_v1',
+  loginFailures: 'login_failures'
+};
+
+// ===== נקודות כניסה =====
+function doGet() {
+  return fail('בקשה לא נתמכת');
+}
+
+function doPost(e) {
+  try {
+    const data = parseRequest(e);
+
+    // תאימות לאחור: דיווח ללא action מזוהה לפי השדה reports
+    const action = data.action || (Array.isArray(data.reports) ? 'submitMatzalReport' : null);
+
+    if (action === 'login') {
+      return handleLogin(data.code);
+    }
+
+    const auth = verifyToken(data.token);
+    if (!auth.valid) {
+      return authError(auth.message);
+    }
+
+    const def = Object.prototype.hasOwnProperty.call(ACTIONS, action) ? ACTIONS[action] : null;
+    if (!def) {
+      return fail('פעולה לא מוכרת');
+    }
+
+    const missing = missingPermissions(auth, def.requires);
+    if (missing.length) {
+      return forbidden(missing);
+    }
+
+    return def.handler(data, auth);
+
+  } catch (error) {
+    if (error instanceof RequestError) {
+      return fail(error.message);
+    }
+    console.error(error && error.stack ? error.stack : String(error));
+    return fail('שגיאת שרת');
+  }
+}
+
+class RequestError extends Error {}
+
+function parseRequest(e) {
+  const body = e && e.postData && e.postData.contents;
+  if (!body) throw new RequestError('בקשה ריקה');
+  if (body.length > MAX_BODY_CHARS) throw new RequestError('הבקשה גדולה מדי');
+  let data;
+  try {
+    data = JSON.parse(body);
+  } catch (err) {
+    throw new RequestError('בקשה לא תקינה');
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new RequestError('בקשה לא תקינה');
+  }
+  return data;
+}
+
+// ===== תשובות =====
+function responseJSON(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function fail(message, extra) {
+  return responseJSON(Object.assign({ success: false, error: message }, extra || {}));
+}
+
+// הטוקן חסר/פג/לא תקין: האפליקציה מתנתקת
+function authError(message) {
+  return fail(message, { isAuthError: true });
+}
+
+// משתמש תקין שחסרה לו הרשאה: האפליקציה לא מתנתקת. (בכוונה בלי המילה "הוסרו")
+function forbidden(missing) {
+  const names = missing.map(function (p) { return PERMISSION_LABELS[p] || p; }).join(', ');
+  return fail('אין לך הרשאה: ' + names, { isPermissionError: true, missingPermissions: missing });
+}
+
+function missingPermissions(auth, required) {
+  return (required || []).filter(function (p) { return auth[p] !== true; });
+}
+
+// ===== הרשאות (גיליון) =====
+function toBool(value) {
+  if (value === true || value === 1) return true;
+  const s = String(value == null ? '' : value).trim().toUpperCase();
+  return s === 'TRUE' || s === 'YES' || s === '1' || s === 'כן';
+}
+
+// רווחים כפולים -> רווח אחד, וחיתוך קצוות
+function collapseSpaces(value) {
+  return String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+}
+
+// השוואת שמות מחלקה: ללא הבדלי רווחים / מרכאות / אותיות גדולות-קטנות ("מחלקה1" = "מחלקה 1").
+// מספרים שונים נשארים שונים ("מחלקה 1" != "מחלקה 11").
+function normalizeDepartment(value) {
+  return String(value == null ? '' : value).replace(/[\s'"״׳]/g, '').toLowerCase();
+}
+
+// תא הרשאה לפי מחלקות (canUpdate1 / canView1): TRUE = הכול, FALSE/ריק = כלום, אחרת = רשימת מחלקות מופרדת בפסיקים.
+// מחזיר { enabled, departments }: departments הוא null (כל המחלקות) או מערך (ייתכן ריק).
+function parseDepartmentAccess(value) {
+  if (value === true || value === 1) return { enabled: true, departments: null };
+
+  const raw = collapseSpaces(value);
+  const upper = raw.toUpperCase();
+  if (upper === 'TRUE' || upper === 'YES' || upper === '1' || upper === 'כן') {
+    return { enabled: true, departments: null };
+  }
+  if (!raw || upper === 'FALSE' || upper === 'NO' || upper === '0' || upper === 'לא') {
+    return { enabled: false, departments: [] };
+  }
+
+  // מפצלים לפני ניקוי הרווחים (אחרת ירידת שורה בתא הייתה הופכת לרווח ומאחדת שני שמות)
+  const list = String(value).split(/[,;\r\n]/).map(collapseSpaces).filter(Boolean);
+  return { enabled: list.length > 0, departments: list };
+}
+
+function parseUpdateAccess(value) {
+  const a = parseDepartmentAccess(value);
+  return { canUpdate1: a.enabled, updateDepartments: a.departments };
+}
+
+function parseViewAccess(value) {
+  const a = parseDepartmentAccess(value);
+  return { canView1: a.enabled, viewDepartments: a.departments };
+}
+
+// האם המחלקה ברשימה? (null = כל המחלקות; מערך = רק המפורטות; אחרת - לא, כלומר נכשלים בצורה סגורה)
+function listAllows(list, department) {
+  if (list === null) return true;
+  if (!Array.isArray(list)) return false;
+  const wanted = normalizeDepartment(department);
+  return list.some(function (d) { return normalizeDepartment(d) === wanted; });
+}
+
+function departmentAllowed(auth, department) {
+  return listAllows(auth.updateDepartments, department);
+}
+
+function viewDepartmentAllowed(auth, department) {
+  return listAllows(auth.viewDepartments, department);
+}
+
+function forbiddenDepartment(department) {
+  return fail('אין לך הרשאה לעדכן את המחלקה: ' + department, {
+    isPermissionError: true,
+    missingPermissions: ['canUpdate1'],
+    department: department
+  });
+}
+
+function forbiddenView(department) {
+  return fail('אין לך הרשאה לצפות במחלקה: ' + department, {
+    isPermissionError: true,
+    missingPermissions: ['canView1'],
+    department: department
+  });
+}
+
+function getPermissionsSheet() {
+  return SpreadsheetApp.openById(CONFIG.PERMISSIONS.SPREADSHEET_ID)
+    .getSheetByName(CONFIG.PERMISSIONS.SHEET_NAME);
+}
+
+// טבלת משתמשים בזיכרון מטמון. הקודים עצמם לא נשמרים - רק מזהה מגובב (hash) לכל משתמש.
+function getPermissionsTable() {
+  const cached = cacheGetJson(CACHE_KEYS.permissions);
+  if (cached) return cached;
+
+  const sheet = getPermissionsSheet();
+  if (!sheet) return null;
+
+  const col = CONFIG.PERMISSIONS.COLUMNS;
+  const rows = sheet.getDataRange().getDisplayValues();
+  const table = [];
+  const seen = {};
+
+  for (let i = 1; i < rows.length; i++) {
+    const code = String(rows[i][col.code] || '').trim();
+    if (!code) continue;
+    const id = userIdFor(code);
+    if (seen[id]) continue; // קוד כפול: הראשון קובע
+    seen[id] = true;
+    const update = parseUpdateAccess(rows[i][col.canUpdate1]);
+    const view = parseViewAccess(rows[i][col.canView1]);
+    table.push({
+      id: id,
+      role: String(rows[i][col.role] || '').trim(),
+      canEdit: toBool(rows[i][col.canEdit]),
+      canReport1: toBool(rows[i][col.canReport1]),
+      canUpdate1: update.canUpdate1,
+      updateDepartments: update.updateDepartments,
+      canView1: view.canView1,
+      viewDepartments: view.viewDepartments
+    });
+  }
+
+  cachePutJson(CACHE_KEYS.permissions, table, PERMISSIONS_CACHE_SEC);
+  return table;
+}
+
+// ===== התחברות =====
+function handleLogin(inputCode) {
+  if (isLoginLocked()) {
+    return fail('בוצעו ניסיונות רבים מדי, נסו שוב בעוד כמה דקות');
+  }
+
+  const table = getPermissionsTable();
+  if (!table) {
+    return fail('גיליון הרשאות לא נמצא');
+  }
+
+  const code = String(inputCode == null ? '' : inputCode).trim();
+  const user = code ? table.find(function (u) { return u.id === userIdFor(code); }) : null;
+
+  if (!user) {
+    recordLoginFailure();
+    return fail('קוד גישה שגוי');
+  }
+
+  return responseJSON({
+    success: true,
+    token: signToken(user.id),
+    role: user.role,
+    canEdit: user.canEdit,
+    canReport1: user.canReport1,
+    canUpdate1: user.canUpdate1,
+    updateDepartments: user.updateDepartments,
+    canView1: user.canView1,
+    viewDepartments: user.viewDepartments
+  });
+}
+
+// הגבלת ניסיונות: מונה כללי (ל-Apps Script אין כתובת IP של הלקוח)
+function isLoginLocked() {
+  return Number(CacheService.getScriptCache().get(CACHE_KEYS.loginFailures) || 0) >= MAX_LOGIN_FAILURES;
+}
+
+function recordLoginFailure() {
+  const cache = CacheService.getScriptCache();
+  const count = Number(cache.get(CACHE_KEYS.loginFailures) || 0) + 1;
+  cache.put(CACHE_KEYS.loginFailures, String(count), LOGIN_FAILURE_WINDOW_SEC);
+}
+
+// ===== טוקן חתום (HMAC-SHA256) =====
+// פורמט: base64url(payload).base64url(חתימה). ה-payload לא כולל את קוד הגישה.
+let tokenSecretMemo = null; // נקרא פעם אחת בכל הרצה (ולא לכל שורת משתמש)
+
+function getTokenSecret() {
+  if (tokenSecretMemo) return tokenSecretMemo;
+  const props = PropertiesService.getScriptProperties();
+  let secret = props.getProperty('TOKEN_SECRET');
+  if (!secret) {
+    secret = Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('TOKEN_SECRET', secret);
+  }
+  tokenSecretMemo = secret;
+  return secret;
+}
+
+// להרצה ידנית פעם אחת. הרצה חוזרת מבטלת את כל החיבורים הקיימים.
+function setupTokenSecret() {
+  tokenSecretMemo = Utilities.getUuid() + Utilities.getUuid();
+  PropertiesService.getScriptProperties().setProperty('TOKEN_SECRET', tokenSecretMemo);
+  CacheService.getScriptCache().removeAll([CACHE_KEYS.permissions]);
+}
+
+function bytesToHex(bytes) {
+  return bytes.map(function (b) { return ('0' + ((b + 256) % 256).toString(16)).slice(-2); }).join('');
+}
+
+function userIdFor(code) {
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    getTokenSecret() + ':' + code,
+    Utilities.Charset.UTF_8
+  );
+  return bytesToHex(digest).slice(0, 32);
+}
+
+function signPayload(payloadPart) {
+  return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(payloadPart, getTokenSecret()));
+}
+
+function signToken(userId) {
+  const now = Date.now();
+  const payload = Utilities.base64EncodeWebSafe(JSON.stringify({ sub: userId, iat: now, exp: now + TOKEN_TTL_MS }));
+  return payload + '.' + signPayload(payload);
+}
+
+function constantTimeEquals(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+function verifyToken(token) {
+  if (!token || typeof token !== 'string') {
+    return { valid: false, message: 'חסר אסימון אימות (Token)' };
+  }
+
+  const invalid = { valid: false, message: 'אסימון אימות לא תקין' };
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 2) return invalid;
+
+    if (!constantTimeEquals(signPayload(parts[0]), parts[1])) return invalid;
+
+    const payload = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString());
+    const now = Date.now();
+    if (typeof payload.sub !== 'string' || typeof payload.exp !== 'number' || typeof payload.iat !== 'number') return invalid;
+    if (payload.iat > now + TOKEN_CLOCK_SKEW_MS) return invalid;
+    if (now >= payload.exp) {
+      return { valid: false, message: 'תוקף החיבור פג, יש להתחבר מחדש' };
+    }
+
+    // המשתמש חייב להיות עדיין בגיליון (ביטול גישה נכנס לתוקף תוך PERMISSIONS_CACHE_SEC)
+    const table = getPermissionsTable();
+    if (!table) return { valid: false, message: 'גיליון הרשאות לא נמצא' };
+
+    const user = table.find(function (u) { return u.id === payload.sub; });
+    if (!user) return { valid: false, message: 'המשתמש או הקוד הוסרו מהמערכת' };
+
+    return {
+      valid: true,
+      role: user.role,
+      canEdit: user.canEdit,
+      canReport1: user.canReport1,
+      canUpdate1: user.canUpdate1,
+      updateDepartments: user.updateDepartments,
+      canView1: user.canView1,
+      viewDepartments: user.viewDepartments
+    };
+  } catch (err) {
+    return invalid;
+  }
+}
+
+// ===== מטמון =====
+function cacheGetJson(key) {
+  try {
+    const raw = CacheService.getScriptCache().get(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function cachePutJson(key, value, seconds) {
+  try {
+    const raw = JSON.stringify(value);
+    if (raw.length < CACHE_VALUE_LIMIT) CacheService.getScriptCache().put(key, raw, seconds);
+  } catch (err) {
+    // מטמון הוא אופטימיזציה בלבד
+  }
+}
+
+// להרצה ידנית אחרי שינוי בגיליונות (חיילים / אפשרויות / הרשאות)
+function clearCaches() {
+  CacheService.getScriptCache().removeAll([CACHE_KEYS.permissions, CACHE_KEYS.soldiers, CACHE_KEYS.options]);
+}
+
+// ===== חיילים =====
+function getSoldiersData() {
+  return responseJSON({ success: true, data: loadSoldiersList() });
+}
+
+function loadSoldiersList() {
+  const cached = cacheGetJson(CACHE_KEYS.soldiers);
+  if (cached) return cached;
+
+  const ss = SpreadsheetApp.openById(CONFIG.SOLDIERS.SPREADSHEET_ID);
+  const all = [];
+
+  ss.getSheets().forEach(function (sheet) {
+    const sheetName = sheet.getName().trim();
+    if (CONFIG.SOLDIERS.SKIP_SHEETS.indexOf(sheetName) !== -1 || sheet.isSheetHidden()) return;
+
+    // getDisplayValues שומר אפסים מובילים (טלפון / מספר אישי)
+    const data = sheet.getDataRange().getDisplayValues();
+    const headerRow = CONFIG.SOLDIERS.HEADER_ROW_INDEX;
+    if (data.length <= headerRow + 1) return;
+
+    const headers = data[headerRow].map(function (h) { return String(h).trim(); });
+    const col = function (name, fallback) {
+      const idx = headers.indexOf(name);
+      return idx !== -1 ? idx : fallback;
+    };
+
+    const idxClass = col('מסגרת', 1);
+    const idxPersonalId = col('מספר אישי', 4);
+    const idxIdNum = col('תעודת זהות', 5);
+    const idxLastName = col('שם משפחה', 6);
+    const idxFirstName = col('שם פרטי', 7);
+    const idxPhone = col('טלפון עיקרי', 8);
+
+    for (let i = headerRow + 1; i < data.length; i++) {
+      const row = data[i];
+      const personalId = String(row[idxPersonalId] || '').trim();
+      const firstName = String(row[idxFirstName] || '').trim();
+      const lastName = String(row[idxLastName] || '').trim();
+      if (!personalId && !firstName && !lastName) continue;
+
+      all.push({
+        id: personalId || ('gen_' + i + '_' + sheetName),
+        personalId: personalId,
+        idNum: String(row[idxIdNum] || '').trim(),
+        firstName: firstName,
+        lastName: lastName,
+        phone: String(row[idxPhone] || '').trim(),
+        unit: String(row[idxClass] || '').trim() || sheetName,
+        tabName: sheetName
+      });
+    }
+  });
+
+  cachePutJson(CACHE_KEYS.soldiers, all, SOLDIERS_CACHE_SEC);
+  return all;
+}
+
+// ===== אפשרויות סטטוס =====
+function normalizeName(str) {
+  return String(str || '').replace(/['"״׳\s-]/g, '').toLowerCase();
+}
+
+function loadReportOptions() {
+  const cached = cacheGetJson(CACHE_KEYS.options);
+  if (cached) return cached;
+
+  const ss = SpreadsheetApp.openById(CONFIG.OPTIONS.SPREADSHEET_ID);
+  const sheets = ss.getSheets();
+
+  const parse = function (targetName) {
+    const target = normalizeName(targetName);
+    const sheet = sheets.find(function (s) { return normalizeName(s.getName()) === target; });
+    if (!sheet) return [];
+
+    const values = sheet.getRange(CONFIG.OPTIONS.RANGE).getDisplayValues();
+    const options = [];
+    for (let i = 1; i < values.length; i++) { // שורה 1 = כותרות
+      const name = String(values[i][1] || '').trim();
+      if (name && name !== 'אפשרות' && name !== 'סטטוס') {
+        options.push({
+          name: name,
+          code: String(values[i][2] || '').trim(),
+          color: String(values[i][3] || '').trim()
+        });
+      }
+    }
+    return options;
+  };
+
+  const options = {};
+  Object.keys(REPORT_TYPES).forEach(function (key) {
+    options[REPORT_TYPES[key].optionsKey] = parse(REPORT_TYPES[key].name);
+  });
+
+  cachePutJson(CACHE_KEYS.options, options, OPTIONS_CACHE_SEC);
+  return options;
+}
+
+function getReportOptions() {
+  return responseJSON({ success: true, data: loadReportOptions() });
+}
+
+// ===== עדכון דיווח =====
+function resolveReportType(raw) {
+  const wanted = normalizeName(raw);
+  if (!wanted) return null;
+  const key = Object.keys(REPORT_TYPES).find(function (k) { return normalizeName(REPORT_TYPES[k].name) === wanted; });
+  return key ? Object.assign({ key: key }, REPORT_TYPES[key]) : null;
+}
+
+// dd/MM/yyyy. ריק = היום (לפי אזור הזמן של הסקריפט). null = תאריך לא תקין.
+function normalizeDate(value) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy');
+
+  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return ('0' + d).slice(-2) + '/' + ('0' + mo).slice(-2) + '/' + y;
+}
+
+// מניעת הזרקת נוסחאות לגיליון (ערך שמתחיל ב- = + - @)
+function safeCell(value) {
+  const s = String(value == null ? '' : value);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
+}
+
+// סטטוס שנשלח כקוד (ש/נ/מ...) או בטעות כשם האפשרות - מחזיר קוד, או null אם לא חוקי
+function resolveStatusCode(status, options) {
+  const s = String(status == null ? '' : status).trim();
+  if (!s) return null;
+  if (!options.length) return s; // אין רשימת אפשרויות לאימות
+  const byCode = options.find(function (o) { return o.code === s; });
+  if (byCode) return byCode.code;
+  const byName = options.find(function (o) { return o.name === s; });
+  return byName && byName.code ? byName.code : null;
+}
+
+function handleMatzalUpdate(data, auth) {
+  const type = resolveReportType(data.reportType);
+  if (!type) {
+    return fail('סוג דיווח לא מוכר');
+  }
+
+  const dateStr = normalizeDate(data.date);
+  if (!dateStr) {
+    return fail('תאריך לא תקין (נדרש dd/mm/yyyy)');
+  }
+
+  const department = collapseSpaces(data.department || data.unit || 'דיווחים').slice(0, 100);
+  if (!department) {
+    return fail('חסרה מחלקה');
+  }
+
+  // משתמש עם רשימת מחלקות רשאי לעדכן רק אותן
+  if (!departmentAllowed(auth, department)) {
+    return forbiddenDepartment(department);
+  }
+
+  if (!Array.isArray(data.reports)) {
+    return fail('חסרה רשימת דיווחים');
+  }
+  if (data.reports.length > MAX_REPORT_ROWS) {
+    return fail('יותר מדי שורות בדיווח');
+  }
+
+  const options = loadReportOptions()[type.optionsKey] || [];
+  const rows = [];
+  const skipped = [];
+  const skip = function (name, reason, message) { skipped.push({ name: name, reason: reason, message: message }); };
+
+  data.reports.forEach(function (item) {
+    const firstName = String((item && item.firstName) || '').trim();
+    const lastName = String((item && item.lastName) || '').trim();
+    const name = (firstName + ' ' + lastName).trim();
+    const rawStatus = String(item && item.status != null ? item.status : '').trim();
+
+    if (!name) return skip('(ללא שם)', 'empty_name', 'חסר שם');
+    if (!rawStatus) return skip(name, 'empty_status', 'חסר סטטוס');
+
+    const status = resolveStatusCode(rawStatus, options);
+    if (status === null) return skip(name, 'invalid_status', 'סטטוס לא חוקי: ' + rawStatus);
+
+    rows.push({ firstName: firstName, lastName: lastName, status: status });
+  });
+
+  if (!rows.length) {
+    return fail('אין שורות תקינות לעדכון', { skipped: skipped });
+  }
+
+  // אם הנעילה לא התפנתה בזמן - תשובה ידידותית (ולא שגיאת שרת כללית)
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(LOCK_WAIT_MS)) {
+    return fail('המערכת עסוקה כרגע, נסו שוב בעוד רגע', { isBusy: true });
+  }
+  try {
+    const result = writeReport(type, department, dateStr, rows);
+    SpreadsheetApp.flush();
+    return responseJSON({
+      success: true,
+      message: 'הדיווח עודכן בהצלחה בעמודת ' + dateStr,
+      fileUrl: result.fileUrl,
+      updated: result.updated,
+      added: result.added,
+      skipped: skipped
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// כתיבה מרוכזת: קריאה אחת וכתיבה אחת לכל חלק (ולא קריאה לכל חייל)
+function writeReport(type, department, dateStr, rows) {
+  const spreadsheet = SpreadsheetApp.openById(type.fileId);
+  // מאתרים לשונית קיימת ללא תלות ברווחים / מרכאות / אותיות, כדי לא ליצור לשונית כפולה
+  const wanted = normalizeDepartment(department);
+  let sheet = spreadsheet.getSheets().find(function (s) { return normalizeDepartment(s.getName()) === wanted; }) || null;
+
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(department);
+    sheet.getRange(1, 1, 1, 3).setValues([['#', 'שם פרטי', 'שם משפחה']]).setFontWeight('bold');
+  }
+
+  // עמודת התאריך
+  const lastCol = sheet.getLastColumn();
+  let dateCol = -1;
+  if (lastCol > 0) {
+    const headers = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+    for (let c = 0; c < headers.length; c++) {
+      if (String(headers[c]).trim() === dateStr) { dateCol = c + 1; break; }
+    }
+  }
+  if (dateCol === -1) {
+    dateCol = Math.max(lastCol + 1, 4);
+    sheet.getRange(1, dateCol).setNumberFormat('@').setValue(dateStr).setFontWeight('bold');
+  }
+
+  // שורות קיימות ושורות חדשות
+  const lastRow = sheet.getLastRow();
+  const existing = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, 3).getDisplayValues() : [];
+  const keyOf = function (first, last) { return String(first).trim() + '|' + String(last).trim(); };
+
+  const rowIndexByName = {};
+  existing.forEach(function (r, i) { rowIndexByName[keyOf(r[1], r[2])] = i; });
+
+  const added = [];
+  rows.forEach(function (r) {
+    const k = keyOf(r.firstName, r.lastName);
+    if (!(k in rowIndexByName)) {
+      rowIndexByName[k] = existing.length + added.length;
+      added.push([existing.length + added.length + 1, safeCell(r.firstName), safeCell(r.lastName)]);
+    }
+  });
+
+  if (added.length) {
+    sheet.getRange(existing.length + 2, 1, added.length, 3).setValues(added);
+  }
+
+  // עמודת הסטטוסים: קוראים את העמודה פעם אחת, מעדכנים בזיכרון וכותבים פעם אחת
+  const totalRows = existing.length + added.length;
+  const statusRange = sheet.getRange(2, dateCol, totalRows, 1);
+  const statusValues = statusRange.getValues();
+  let updated = 0;
+  rows.forEach(function (r) {
+    statusValues[rowIndexByName[keyOf(r.firstName, r.lastName)]][0] = safeCell(r.status);
+    updated++;
+  });
+  statusRange.setValues(statusValues);
+
+  return { fileUrl: spreadsheet.getUrl(), updated: updated, added: added.length };
+}
+
+// ===== צפייה בדיווחים (קריאה בלבד) =====
+function personKey(first, last) {
+  return String(first == null ? '' : first).trim() + '|' + String(last == null ? '' : last).trim();
+}
+
+// ערך שנשמר בגיליון (קוד, או בטעות שם אפשרות) -> קוד. ערך לא מוכר נשאר כפי שהוא.
+function statusToCode(value, options) {
+  const s = String(value == null ? '' : value).trim();
+  if (!s) return '';
+  const byCode = options.find(function (o) { return o.code === s; });
+  if (byCode) return byCode.code;
+  const byName = options.find(function (o) { return o.name === s && o.code; });
+  return byName ? byName.code : s;
+}
+
+// מיון שמות מחלקות עם מספרים בסדר טבעי (מחלקה 2 לפני מחלקה 10)
+function departmentSortKey(name) {
+  return String(name).replace(/\d+/g, function (m) { return ('000000' + m).slice(-6); });
+}
+
+// הסטטוסים בעמודת התאריך של לשונית אחת: { found, rows: [{ firstName, lastName, status }] }
+function readReportColumn(sheet, dateStr, options) {
+  if (!sheet) return { found: false, rows: [] };
+  const values = sheet.getDataRange().getDisplayValues();
+  if (!values.length) return { found: false, rows: [] };
+
+  let dateCol = -1;
+  for (let c = 0; c < values[0].length; c++) {
+    if (String(values[0][c]).trim() === dateStr) { dateCol = c; break; }
+  }
+
+  const rows = [];
+  for (let i = 1; i < values.length; i++) {
+    const firstName = String(values[i][1] || '').trim();
+    const lastName = String(values[i][2] || '').trim();
+    if (!firstName && !lastName) continue;
+    rows.push({ firstName: firstName, lastName: lastName, status: dateCol === -1 ? '' : statusToCode(values[i][dateCol], options) });
+  }
+  return { found: dateCol !== -1, rows: rows };
+}
+
+// תקציר כללי + פירוט לפי מחלקה, ורשימת אנשים רק כשמבקשים מחלקה ספציפית.
+// כל מחלקה שאינה מותרת למשתמש לא מופיעה בתשובה כלל.
+function handleReportView(data, auth) {
+  const type = resolveReportType(data.reportType);
+  if (!type) return fail('סוג דיווח לא מוכר');
+
+  const dateStr = normalizeDate(data.date);
+  if (!dateStr) return fail('תאריך לא תקין (נדרש dd/mm/yyyy)');
+
+  const requested = collapseSpaces(data.department || '');
+  if (requested && !viewDepartmentAllowed(auth, requested)) {
+    return forbiddenView(requested);
+  }
+
+  const options = loadReportOptions()[type.optionsKey] || [];
+  const soldiers = loadSoldiersList();
+  const sheets = SpreadsheetApp.openById(type.fileId).getSheets();
+
+  // כל המחלקות הידועות: יחידות החיילים + לשוניות הדיווח, ורק אלה שמותר לצפות בהן
+  const known = {};
+  const addDepartment = function (name) {
+    const clean = collapseSpaces(name);
+    if (clean && !(normalizeDepartment(clean) in known)) known[normalizeDepartment(clean)] = clean;
+  };
+  soldiers.forEach(function (s) { addDepartment(s.unit); });
+  sheets.forEach(function (sh) { addDepartment(sh.getName()); });
+
+  const names = Object.keys(known)
+    .map(function (k) { return known[k]; })
+    .filter(function (n) { return viewDepartmentAllowed(auth, n); })
+    .sort(function (a, b) { const x = departmentSortKey(a), y = departmentSortKey(b); return x < y ? -1 : x > y ? 1 : 0; });
+
+  let hasData = false;
+  let details = null;
+  const departments = [];
+  const overall = { total: 0, reported: 0, unreported: 0, counts: {} };
+
+  names.forEach(function (name) {
+    const norm = normalizeDepartment(name);
+    const sheet = sheets.find(function (sh) { return normalizeDepartment(sh.getName()) === norm; }) || null;
+    const column = readReportColumn(sheet, dateStr, options);
+    if (column.found) hasData = true;
+
+    const statusByPerson = {};
+    column.rows.forEach(function (r) { statusByPerson[personKey(r.firstName, r.lastName)] = r.status; });
+
+    // אנשי המחלקה: חיילי היחידה + מי שמופיע רק בלשונית הדיווח
+    const people = [];
+    const seen = {};
+    soldiers.forEach(function (s) {
+      if (normalizeDepartment(s.unit) !== norm) return;
+      const k = personKey(s.firstName, s.lastName);
+      if (seen[k]) return;
+      seen[k] = true;
+      people.push({ firstName: s.firstName, lastName: s.lastName, status: statusByPerson[k] || '' });
+    });
+    column.rows.forEach(function (r) {
+      const k = personKey(r.firstName, r.lastName);
+      if (seen[k]) return;
+      seen[k] = true;
+      people.push({ firstName: r.firstName, lastName: r.lastName, status: r.status });
+    });
+
+    const counts = {};
+    let reported = 0;
+    people.forEach(function (p) {
+      if (!p.status) return;
+      reported++;
+      counts[p.status] = (counts[p.status] || 0) + 1;
+      overall.counts[p.status] = (overall.counts[p.status] || 0) + 1;
+    });
+
+    departments.push({ name: name, total: people.length, reported: reported, unreported: people.length - reported, counts: counts });
+    overall.total += people.length;
+    overall.reported += reported;
+    overall.unreported += people.length - reported;
+
+    if (requested && norm === normalizeDepartment(requested)) details = people;
+  });
+
+  return responseJSON({
+    success: true,
+    reportType: type.name,
+    date: dateStr,
+    department: requested,
+    hasData: hasData,
+    options: options,
+    overall: overall,
+    departments: departments,
+    details: requested ? (details || []) : null
+  });
+}
+
+// ===== פונקציות עזר להרצה ידנית מהעורך =====
+
+// מקפיצה את חלון אישור ההרשאות של גוגל (פותחת כל קובץ שהסקריפט משתמש בו)
+function authorizeScopes() {
+  SpreadsheetApp.openById(CONFIG.PERMISSIONS.SPREADSHEET_ID);
+  SpreadsheetApp.openById(CONFIG.SOLDIERS.SPREADSHEET_ID);
+  SpreadsheetApp.openById(CONFIG.OPTIONS.SPREADSHEET_ID);
+  Object.keys(REPORT_TYPES).forEach(function (k) { SpreadsheetApp.openById(REPORT_TYPES[k].fileId); });
+  CacheService.getScriptCache();
+  LockService.getScriptLock();
+  Logger.log('Authorization OK');
+}
+
+// מנקה את המטמון אוטומטית בכל עריכה ידנית בגיליונות ההרשאות / חיילים / אפשרויות,
+// כך ששינוי הרשאה או רשימה נכנס לתוקף מיד. להרצה ידנית פעם אחת (ניתן להריץ שוב בבטחה).
+function installCacheTriggers() {
+  const HANDLER = 'onSheetEdited';
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === HANDLER) ScriptApp.deleteTrigger(t);
+  });
+  [CONFIG.PERMISSIONS.SPREADSHEET_ID, CONFIG.SOLDIERS.SPREADSHEET_ID, CONFIG.OPTIONS.SPREADSHEET_ID].forEach(function (id) {
+    ScriptApp.newTrigger(HANDLER).forSpreadsheet(id).onEdit().create();
+  });
+  Logger.log('Cache triggers installed');
+}
+
+// מופעל על ידי ה-trigger שמותקן ב-installCacheTriggers
+function onSheetEdited() {
+  clearCaches();
+}
+
+// בדיקה ידנית: כותבת ללשונית בשם "__בדיקה__" בקובץ צפי הגעה (למחוק אותה אחרי הבדיקה)
+function testSubmitReport() {
+  const auth = { valid: true, canReport1: true, canUpdate1: true, updateDepartments: null, canEdit: false };
+  const data = {
+    reportType: 'צפי הגעה',
+    department: '__בדיקה__',
+    date: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy'),
+    reports: [
+      { firstName: 'ישראל', lastName: 'ישראלי', status: 'מ' },
+      { firstName: 'משה', lastName: 'כהן', status: 'ב' }
+    ]
+  };
+  Logger.log(handleMatzalUpdate(data, auth).getContent());
+}
