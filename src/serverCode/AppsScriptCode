@@ -5,7 +5,15 @@
 //    login               - ללא טוקן, מחזיר טוקן חתום + הרשאות
 //    getSoldiers         - כל משתמש מחובר
 //    getReportOptions    - דורש canReport1
-//    getReportView       - צפייה בדיווחים (קריאה בלבד): דורש canView1, ובמחלקות המותרות בלבד
+//    getReportView       - צפייה בדיווחים (קריאה בלבד): דורש canView1, ובמחלקות המותרות בלבד.
+//                          בלי date: הדיווח האחרון של כל מחלקה (לכל מחלקה התאריך שלה); עם date: תאריך מסוים.
+//                          לכל חייל מוחזרת גם ההערה האחרונה (note).
+//                          עם status (קוד / '*' כולם / '__unreported' / '__other') מוחזרת גם people:
+//                          כל החיילים עם הסטטוס הזה בכל המחלקות שמותר לצפות בהן
+//
+//  הערות: שורת דיווח יכולה לכלול note. ההערה נשמרת בעמודה "הערות" שנשארת תמיד העמודה האחרונה
+//  בלשונית המחלקה (עמודת תאריך חדשה נכנסת לפניה), וערך חדש דורס את הקודם (גם ערך ריק).
+//  שורה בלי השדה note לא משנה את ההערה הקיימת.
 //    submitMatzalReport  - דורש canReport1 + canUpdate1 (לשני סוגי הדיווח: דוח 1 וצפי הגעה),
 //                          ובנוסף המחלקה המדווחת חייבת להיות מותרת למשתמש (ראו להלן)
 //
@@ -81,6 +89,8 @@ const TOKEN_CLOCK_SKEW_MS = 5 * 60 * 1000;       // סטיית שעון מותר
 const LOCK_WAIT_MS = 15000;                      // כמה זמן מחכים לנעילת הכתיבה לפני שמחזירים "עסוק"
 const MAX_BODY_CHARS = 200000;
 const MAX_REPORT_ROWS = 1000;
+const NOTES_HEADER = 'הערות';                   // כותרת עמודת ההערות (תמיד העמודה האחרונה בלשונית)
+const MAX_NOTE_CHARS = 500;
 const MAX_LOGIN_FAILURES = 20;                   // כשלונות התחברות בחלון זמן
 const LOGIN_FAILURE_WINDOW_SEC = 300;
 const PERMISSIONS_CACHE_SEC = 60;                // השהיית ביטול הרשאה מקסימלית
@@ -649,7 +659,9 @@ function handleMatzalUpdate(data, auth) {
     const status = resolveStatusCode(rawStatus, options);
     if (status === null) return skip(name, 'invalid_status', 'סטטוס לא חוקי: ' + rawStatus);
 
-    rows.push({ firstName: firstName, lastName: lastName, status: status });
+    // note: undefined/null = לא נשלחה הערה (לא משנים); מחרוזת (גם ריקה) = דורסת את ההערה הקיימת
+    const note = item.note === undefined || item.note === null ? null : String(item.note).trim().slice(0, MAX_NOTE_CHARS);
+    rows.push({ firstName: firstName, lastName: lastName, status: status, note: note });
   });
 
   if (!rows.length) {
@@ -689,17 +701,24 @@ function writeReport(type, department, dateStr, rows) {
     sheet.getRange(1, 1, 1, 3).setValues([['#', 'שם פרטי', 'שם משפחה']]).setFontWeight('bold');
   }
 
-  // עמודת התאריך
+  // עמודת התאריך ועמודת ההערות (תמיד האחרונה: עמודת תאריך חדשה נכנסת לפניה)
   const lastCol = sheet.getLastColumn();
+  const headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0] : [];
   let dateCol = -1;
-  if (lastCol > 0) {
-    const headers = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
-    for (let c = 0; c < headers.length; c++) {
-      if (String(headers[c]).trim() === dateStr) { dateCol = c + 1; break; }
-    }
+  let notesCol = -1;
+  for (let c = 0; c < headers.length; c++) {
+    const h = String(headers[c]).trim();
+    if (dateCol === -1 && h === dateStr) dateCol = c + 1;
+    if (notesCol === -1 && h === NOTES_HEADER) notesCol = c + 1;
   }
   if (dateCol === -1) {
-    dateCol = Math.max(lastCol + 1, 4);
+    if (notesCol !== -1) {
+      sheet.insertColumnBefore(notesCol); // העמודה החדשה תופסת את מקום ההערות, וההערות זזות ימינה
+      dateCol = notesCol;
+      notesCol += 1;
+    } else {
+      dateCol = Math.max(lastCol + 1, 4);
+    }
     sheet.getRange(1, dateCol).setNumberFormat('@').setValue(dateStr).setFontWeight('bold');
   }
 
@@ -735,6 +754,20 @@ function writeReport(type, department, dateStr, rows) {
   });
   statusRange.setValues(statusValues);
 
+  // עמודת ההערות: נוצרת (בסוף) רק כשמגיעה הערה, וכל הערה חדשה דורסת את הקודמת
+  if (rows.some(function (r) { return r.note !== null; })) {
+    if (notesCol === -1) {
+      notesCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, notesCol).setValue(NOTES_HEADER).setFontWeight('bold');
+    }
+    const noteRange = sheet.getRange(2, notesCol, totalRows, 1);
+    const noteValues = noteRange.getValues();
+    rows.forEach(function (r) {
+      if (r.note !== null) noteValues[rowIndexByName[keyOf(r.firstName, r.lastName)]][0] = safeCell(r.note);
+    });
+    noteRange.setValues(noteValues);
+  }
+
   return { fileUrl: spreadsheet.getUrl(), updated: updated, added: added.length };
 }
 
@@ -758,15 +791,42 @@ function departmentSortKey(name) {
   return String(name).replace(/\d+/g, function (m) { return ('000000' + m).slice(-6); });
 }
 
-// הסטטוסים בעמודת התאריך של לשונית אחת: { found, rows: [{ firstName, lastName, status }] }
+// כותרת תאריך dd/mm/yyyy -> מספר שניתן להשוות (yyyymmdd), או null אם זו לא כותרת תאריך
+function dateHeaderValue(header) {
+  const m = String(header == null ? '' : header).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return m ? Number(m[3]) * 10000 + Number(m[2]) * 100 + Number(m[1]) : null;
+}
+
+// הסטטוסים בעמודת תאריך של לשונית אחת: { found, date, rows: [{ firstName, lastName, status }] }.
+// dateStr = תאריך מסוים; null = העמודה האחרונה (לפי תאריך) שיש בה לפחות סטטוס אחד.
 function readReportColumn(sheet, dateStr, options) {
-  if (!sheet) return { found: false, rows: [] };
+  if (!sheet) return { found: false, date: '', rows: [] };
   const values = sheet.getDataRange().getDisplayValues();
-  if (!values.length) return { found: false, rows: [] };
+  if (!values.length) return { found: false, date: '', rows: [] };
+
+  const hasStatus = function (c) {
+    for (let i = 1; i < values.length; i++) {
+      if (String(values[i][c] == null ? '' : values[i][c]).trim()) return true;
+    }
+    return false;
+  };
+
+  let notesCol = -1;
+  for (let c = 0; c < values[0].length; c++) {
+    if (String(values[0][c]).trim() === NOTES_HEADER) { notesCol = c; break; }
+  }
 
   let dateCol = -1;
-  for (let c = 0; c < values[0].length; c++) {
-    if (String(values[0][c]).trim() === dateStr) { dateCol = c; break; }
+  if (dateStr) {
+    for (let c = 0; c < values[0].length; c++) {
+      if (String(values[0][c]).trim() === dateStr) { dateCol = c; break; }
+    }
+  } else {
+    let best = -1;
+    for (let c = 0; c < values[0].length; c++) {
+      const v = dateHeaderValue(values[0][c]);
+      if (v !== null && v > best && hasStatus(c)) { best = v; dateCol = c; }
+    }
   }
 
   const rows = [];
@@ -774,9 +834,14 @@ function readReportColumn(sheet, dateStr, options) {
     const firstName = String(values[i][1] || '').trim();
     const lastName = String(values[i][2] || '').trim();
     if (!firstName && !lastName) continue;
-    rows.push({ firstName: firstName, lastName: lastName, status: dateCol === -1 ? '' : statusToCode(values[i][dateCol], options) });
+    rows.push({
+      firstName: firstName,
+      lastName: lastName,
+      status: dateCol === -1 ? '' : statusToCode(values[i][dateCol], options),
+      note: notesCol === -1 ? '' : String(values[i][notesCol] == null ? '' : values[i][notesCol]).trim()
+    });
   }
-  return { found: dateCol !== -1, rows: rows };
+  return { found: dateCol !== -1, date: dateCol === -1 ? '' : String(values[0][dateCol]).trim(), rows: rows };
 }
 
 // תקציר כללי + פירוט לפי מחלקה, ורשימת אנשים רק כשמבקשים מחלקה ספציפית.
@@ -785,8 +850,10 @@ function handleReportView(data, auth) {
   const type = resolveReportType(data.reportType);
   if (!type) return fail('סוג דיווח לא מוכר');
 
-  const dateStr = normalizeDate(data.date);
-  if (!dateStr) return fail('תאריך לא תקין (נדרש dd/mm/yyyy)');
+  // בלי תאריך: הדיווח האחרון של כל מחלקה. עם תאריך: אותו תאריך לכל המחלקות.
+  const dateRaw = String(data.date == null ? '' : data.date).trim();
+  const dateStr = dateRaw ? normalizeDate(dateRaw) : null;
+  if (dateRaw && !dateStr) return fail('תאריך לא תקין (נדרש dd/mm/yyyy)');
 
   const requested = collapseSpaces(data.department || '');
   if (requested && !viewDepartmentAllowed(auth, requested)) {
@@ -796,6 +863,17 @@ function handleReportView(data, auth) {
   const options = loadReportOptions()[type.optionsKey] || [];
   const soldiers = loadSoldiersList();
   const sheets = SpreadsheetApp.openById(type.fileId).getSheets();
+
+  // סינון לפי סטטוס בכל המחלקות: קוד אפשרות, '*' = כולם, '__unreported' = לא דווח, '__other' = קוד שאינו אפשרות
+  const statusFilter = String(data.status == null ? '' : data.status).trim();
+  const matchesStatus = function (p) {
+    if (!statusFilter) return false;
+    if (statusFilter === '*') return true;
+    if (statusFilter === '__unreported') return !p.status;
+    if (statusFilter === '__other') return Boolean(p.status) && !options.some(function (o) { return o.code === p.status; });
+    return p.status === statusFilter;
+  };
+  const matchedPeople = [];
 
   // כל המחלקות הידועות: יחידות החיילים + לשוניות הדיווח, ורק אלה שמותר לצפות בהן
   const known = {};
@@ -823,7 +901,11 @@ function handleReportView(data, auth) {
     if (column.found) hasData = true;
 
     const statusByPerson = {};
-    column.rows.forEach(function (r) { statusByPerson[personKey(r.firstName, r.lastName)] = r.status; });
+    const noteByPerson = {};
+    column.rows.forEach(function (r) {
+      statusByPerson[personKey(r.firstName, r.lastName)] = r.status;
+      noteByPerson[personKey(r.firstName, r.lastName)] = r.note;
+    });
 
     // אנשי המחלקה: חיילי היחידה + מי שמופיע רק בלשונית הדיווח
     const people = [];
@@ -833,13 +915,13 @@ function handleReportView(data, auth) {
       const k = personKey(s.firstName, s.lastName);
       if (seen[k]) return;
       seen[k] = true;
-      people.push({ firstName: s.firstName, lastName: s.lastName, status: statusByPerson[k] || '' });
+      people.push({ firstName: s.firstName, lastName: s.lastName, status: statusByPerson[k] || '', note: noteByPerson[k] || '' });
     });
     column.rows.forEach(function (r) {
       const k = personKey(r.firstName, r.lastName);
       if (seen[k]) return;
       seen[k] = true;
-      people.push({ firstName: r.firstName, lastName: r.lastName, status: r.status });
+      people.push({ firstName: r.firstName, lastName: r.lastName, status: r.status, note: r.note });
     });
 
     const counts = {};
@@ -851,24 +933,33 @@ function handleReportView(data, auth) {
       overall.counts[p.status] = (overall.counts[p.status] || 0) + 1;
     });
 
-    departments.push({ name: name, total: people.length, reported: reported, unreported: people.length - reported, counts: counts });
+    // לשונית בלי אף אדם (למשל "גיליון1" ברירת המחדל של קובץ חדש) איננה מחלקה ולא מוצגת
+    if (!people.length) return;
+
+    departments.push({ name: name, date: column.found ? column.date : '', total: people.length, reported: reported, unreported: people.length - reported, counts: counts });
     overall.total += people.length;
     overall.reported += reported;
     overall.unreported += people.length - reported;
 
     if (requested && norm === normalizeDepartment(requested)) details = people;
+    people.forEach(function (p) {
+      if (matchesStatus(p)) {
+        matchedPeople.push({ firstName: p.firstName, lastName: p.lastName, status: p.status, note: p.note, department: name, date: column.found ? column.date : '' });
+      }
+    });
   });
 
   return responseJSON({
     success: true,
     reportType: type.name,
-    date: dateStr,
+    date: dateStr || '',
     department: requested,
     hasData: hasData,
     options: options,
     overall: overall,
     departments: departments,
-    details: requested ? (details || []) : null
+    details: requested ? (details || []) : null,
+    people: statusFilter ? matchedPeople : null
   });
 }
 

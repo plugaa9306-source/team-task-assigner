@@ -106,7 +106,8 @@ export function formatSyncDate(iso) {
 }
 
 // Payload for the background Google Sheets sync. `status` is the single-character option code
-// (the select values already are the codes). Soldiers with no status yet are left out.
+// (the select values already are the codes). Soldiers with no status yet are left out. `note` is the
+// soldier's remark: the sheet keeps only the latest one, so an empty note clears the previous one.
 export function buildSyncPayload(soldiers, entries, typeKey, dateISO, unit) {
   return {
     reportType: typeOf(typeKey).syncName,
@@ -115,6 +116,6 @@ export function buildSyncPayload(soldiers, entries, typeKey, dateISO, unit) {
     reports: soldiers
       .map((s) => ({ s, status: entryOf(entries, s).status }))
       .filter(({ status }) => status)
-      .map(({ s, status }) => ({ firstName: s.firstName, lastName: s.lastName, status })),
+      .map(({ s, status }) => ({ firstName: s.firstName, lastName: s.lastName, status, note: entryOf(entries, s).note.trim() })),
   };
 }

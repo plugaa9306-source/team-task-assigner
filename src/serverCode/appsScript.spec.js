@@ -59,6 +59,9 @@ class MockSheet {
     return new MockRange(this, a, b, c ?? 1, d ?? 1);
   }
   appendRow(row) { this.cells.push([...row]); }
+  insertColumnBefore(col) {
+    this.cells.forEach((row) => { while (row.length < col - 1) row.push(""); row.splice(col - 1, 0, ""); });
+  }
 }
 
 class MockSpreadsheet {
@@ -412,6 +415,72 @@ describe("Apps Script server", () => {
       expect(sheetOf().cells[0][3]).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
     });
 
+    describe("notes (הערות)", () => {
+      const row = (first, last, status, note) => ({ firstName: first, lastName: last, status, ...(note === undefined ? {} : { note }) });
+      const last = (arr) => arr[arr.length - 1];
+
+      it("saves the note in a 'הערות' column at the end of the sheet", () => {
+        const r = submit({ reports: [row("ישראל", "ישראלי", "מ", "מגיע באיחור"), row("משה", "כהן", "נ", "")] });
+        expect(r.success).toBe(true);
+        expect(sheetOf().cells).toEqual([
+          ["#", "שם פרטי", "שם משפחה", "03/10/2026", "הערות"],
+          [1, "ישראל", "ישראלי", "מ", "מגיע באיחור"],
+          [2, "משה", "כהן", "נ", ""],
+        ]);
+      });
+
+      it("a new value overwrites the previous one, including an empty value", () => {
+        submit({ reports: [row("א", "ב", "מ", "הערה ראשונה"), row("ג", "ד", "מ", "נשארת")] });
+        submit({ reports: [row("א", "ב", "נ", "הערה חדשה")] });
+        expect(sheetOf().cells[1].slice(3)).toEqual(["נ", "הערה חדשה"]);
+        expect(sheetOf().cells[2].slice(3)).toEqual(["מ", "נשארת"]);        // not sent this time -> untouched
+        submit({ reports: [row("א", "ב", "נ", "")] });
+        expect(sheetOf().cells[1][4]).toBe("");                              // an explicit empty note clears it
+      });
+
+      it("a new date column is inserted before the notes, which stay the last column and keep their values", () => {
+        submit({ reports: [row("א", "ב", "מ", "הערה")] });
+        submit({ date: "04/10/2026", reports: [row("א", "ב", "נ", "הערה מעודכנת"), row("ג", "ד", "ש", "של ג")] });
+        expect(sheetOf().cells[0]).toEqual(["#", "שם פרטי", "שם משפחה", "03/10/2026", "04/10/2026", "הערות"]);
+        expect(sheetOf().cells[1]).toEqual([1, "א", "ב", "מ", "נ", "הערה מעודכנת"]);   // old status kept, note overwritten
+        expect(sheetOf().cells[2]).toEqual([2, "ג", "ד", "", "ש", "של ג"]);
+        expect(last(sheetOf().cells[0])).toBe("הערות");
+        submit({ date: "05/10/2026", reports: [row("א", "ב", "מ", "עוד אחת")] });
+        expect(last(sheetOf().cells[0])).toBe("הערות");
+        expect(sheetOf().cells[0].slice(3)).toEqual(["03/10/2026", "04/10/2026", "05/10/2026", "הערות"]);
+        expect(sheetOf().cells[1].slice(3)).toEqual(["מ", "נ", "מ", "עוד אחת"]);
+      });
+
+      it("adds the column at the end of an older sheet that had none", () => {
+        submit({ reports: [row("א", "ב", "מ")] });                         // no note field at all (older app)
+        expect(sheetOf().cells[0]).toEqual(["#", "שם פרטי", "שם משפחה", "03/10/2026"]);
+        submit({ date: "04/10/2026", reports: [row("א", "ב", "נ", "ראשונה")] });
+        expect(sheetOf().cells[0]).toEqual(["#", "שם פרטי", "שם משפחה", "03/10/2026", "04/10/2026", "הערות"]);
+        expect(sheetOf().cells[1]).toEqual([1, "א", "ב", "מ", "נ", "ראשונה"]);
+      });
+
+      it("reports without a note field leave existing notes alone and never create the column", () => {
+        submit({ reports: [row("א", "ב", "מ", "נשמר")] });
+        submit({ reports: [row("א", "ב", "נ")] });
+        expect(sheetOf().cells[1]).toEqual([1, "א", "ב", "נ", "נשמר"]);
+        submit({ reportType: "צפי הגעה", reports: [row("א", "ב", "מ")] });
+        expect(env.spreadsheets.ARR.getSheetByName("מחלקה 1").cells[0]).not.toContain("הערות");
+      });
+
+      it("trims, caps the length and neutralises formulas", () => {
+        submit({ reports: [row("א", "ב", "מ", "  =HYPERLINK(\"x\")  "), row("ג", "ד", "מ", "x".repeat(900))] });
+        expect(sheetOf().cells[1][4]).toBe("'=HYPERLINK(\"x\")");
+        expect(sheetOf().cells[2][4]).toHaveLength(500);
+      });
+
+      it("each report type keeps its own notes in its own file", () => {
+        submit({ reports: [row("א", "ב", "מ", "בדוח 1")] });
+        submit({ reportType: "צפי הגעה", reports: [row("א", "ב", "מ", "בצפי")] });
+        expect(sheetOf().cells[1][4]).toBe("בדוח 1");
+        expect(env.spreadsheets.ARR.getSheetByName("מחלקה 1").cells[1][4]).toBe("בצפי");
+      });
+    });
+
     it("neutralises spreadsheet formulas in names", () => {
       submit({ reports: [{ firstName: "=HYPERLINK(\"x\")", lastName: "+1", status: "מ" }] });
       expect(sheetOf().cells[1].slice(1, 3)).toEqual(["'=HYPERLINK(\"x\")", "'+1"]);
@@ -675,9 +744,9 @@ describe("Apps Script server", () => {
       expect(r).toMatchObject({ success: true, reportType: "דוח 1", date: "03/10/2026", hasData: true, details: null });
       expect(r.departments.map((d) => d.name)).toEqual(["מחלקה 1", "מחלקה 2"]);
       // מחלקה 1: 3 people (2 soldiers + one extra from the report tab); מ x2 (code + name), ב x1
-      expect(r.departments[0]).toEqual({ name: "מחלקה 1", total: 3, reported: 3, unreported: 0, counts: { מ: 2, ב: 1 } });
+      expect(r.departments[0]).toEqual({ name: "מחלקה 1", date: "03/10/2026", total: 3, reported: 3, unreported: 0, counts: { מ: 2, ב: 1 } });
       // מחלקה 2: 2 soldiers, one reported נ, one not reported
-      expect(r.departments[1]).toEqual({ name: "מחלקה 2", total: 2, reported: 1, unreported: 1, counts: { נ: 1 } });
+      expect(r.departments[1]).toEqual({ name: "מחלקה 2", date: "03/10/2026", total: 2, reported: 1, unreported: 1, counts: { נ: 1 } });
       expect(r.overall).toEqual({ total: 5, reported: 4, unreported: 1, counts: { מ: 2, ב: 1, נ: 1 } });
       expect(r.options.map((o) => o.code)).toEqual(["ש", "נ", "מ"]);
     });
@@ -686,8 +755,8 @@ describe("Apps Script server", () => {
       const r = view("1111", { department: "מחלקה 2" });
       expect(r.department).toBe("מחלקה 2");
       expect(r.details).toEqual([
-        { firstName: "משה", lastName: "לוי", status: "נ" },
-        { firstName: "יוסי", lastName: "בר", status: "" },
+        { firstName: "משה", lastName: "לוי", status: "נ", note: "" },
+        { firstName: "יוסי", lastName: "בר", status: "", note: "" },
       ]);
       expect(r.departments).toHaveLength(2); // the summary is still complete
     });
@@ -714,6 +783,96 @@ describe("Apps Script server", () => {
       expect(view("7777", { department: "מחלקה 2" }).success).toBe(true);
     });
 
+    it("returns each person's latest note in the personnel list (also when the dates move on)", () => {
+      const sheet = env.spreadsheets.R1.getSheetByName("מחלקה 1");
+      sheet.cells[0].push("הערות");                                  // notes column is last
+      sheet.cells[1][5] = "מגיע באיחור";                              // שלמה
+      sheet.cells[2][5] = "  חולה  ";                                 // דוד (trimmed)
+      const byName = (r) => Object.fromEntries(r.details.map((d) => [d.firstName, d.note]));
+      expect(byName(view("1111", { department: "מחלקה 1" }))).toEqual({ שלמה: "מגיע באיחור", דוד: "חולה", אורח: "" });
+      expect(byName(view("1111", { date: "", department: "מחלקה 1" })).שלמה).toBe("מגיע באיחור");  // latest mode
+      expect(view("1111", { department: "מחלקה 2" }).details.every((d) => d.note === "")).toBe(true);  // no notes column there
+    });
+
+    it("the 'הערות' header is never mistaken for a date when looking for the latest report", () => {
+      const sheet = env.spreadsheets.R1.getSheetByName("מחלקה 1");
+      sheet.cells[0].push("הערות");
+      sheet.cells[1][5] = "x";
+      expect(view("1111", { date: "" }).departments[0].date).toBe("04/10/2026");
+    });
+
+    it("tabs with nobody in them (like the default 'גיליון1' / 'Sheet1') are not departments", () => {
+      env.spreadsheets.R1.sheets.push(
+        new MockSheet("גיליון1", []),                                              // brand-new empty tab
+        new MockSheet("Sheet1", [["#", "שם פרטי", "שם משפחה"]]),                  // header only
+        new MockSheet("מחלקה ישנה", [["#", "שם פרטי", "שם משפחה", "03/10/2026"], [1, "ישן", "אדם", "מ"]]) // real data, not in the soldiers list
+      );
+      for (const r of [view("1111"), view("1111", { date: "" })]) {
+        expect(r.departments.map((d) => d.name)).toEqual(["מחלקה 1", "מחלקה 2", "מחלקה ישנה"]);
+        expect(r.overall.total).toBe(6);
+      }
+      expect(view("1111", { department: "גיליון1" })).toMatchObject({ success: true, details: [] });
+    });
+
+    it("an empty tab does not appear for a limited user either", () => {
+      env.spreadsheets.R1.sheets.push(new MockSheet("גיליון1", []));
+      expect(view("6666").departments.map((d) => d.name)).toEqual(["מחלקה 1"]);
+    });
+
+    describe("filtering the people by status across departments", () => {
+      const people = (r) => r.people.map((p) => `${p.firstName} ${p.lastName} / ${p.department} / ${p.date}`);
+
+      it("returns nobody unless a status is requested", () => {
+        expect(view("1111").people).toBeNull();
+      });
+
+      it("a status code returns every person with it, from all departments, with department and date", () => {
+        expect(people(view("1111", { status: "מ" }))).toEqual(["שלמה קליסקי / מחלקה 1 / 03/10/2026", "דוד כהן / מחלקה 1 / 03/10/2026"]);
+        expect(people(view("1111", { status: "נ" }))).toEqual(["משה לוי / מחלקה 2 / 03/10/2026"]);
+        expect(view("1111", { status: "ש" }).people).toEqual([]);                  // a valid status nobody has
+        expect(view("1111", { status: "ZZ" }).people).toEqual([]);                 // unknown code
+      });
+
+      it("'__unreported' returns those with no status, '__other' those with a code that is not an option, '*' everyone", () => {
+        expect(people(view("1111", { status: "__unreported" }))).toEqual(["יוסי בר / מחלקה 2 / 03/10/2026"]);
+        expect(people(view("1111", { status: "__other" }))).toEqual(["אורח אחר / מחלקה 1 / 03/10/2026"]);   // status ב is not an option of דוח 1
+        const all = view("1111", { status: "*" });
+        expect(all.people).toHaveLength(5);
+        expect(all.people.map((p) => p.note)).toEqual(["", "", "", "", ""]);
+      });
+
+      it("people carry their own note and status", () => {
+        const sheet = env.spreadsheets.R1.getSheetByName("מחלקה 1");
+        sheet.cells[0].push("הערות");
+        sheet.cells[1][5] = "מגיע באיחור";
+        const r = view("1111", { status: "מ" });
+        expect(r.people[0]).toEqual({ firstName: "שלמה", lastName: "קליסקי", status: "מ", note: "מגיע באיחור", department: "מחלקה 1", date: "03/10/2026" });
+      });
+
+      it("without a date each person comes from their own department's latest report", () => {
+        const r = view("1111", { date: "", status: "נ" });
+        expect(people(r)).toEqual(["דוד כהן / מחלקה 1 / 04/10/2026", "משה לוי / מחלקה 2 / 03/10/2026"]);
+      });
+
+      it("a limited user only gets people of the departments they may view", () => {
+        const r = view("6666", { status: "*" });
+        expect(r.people).toHaveLength(3);
+        expect(r.people.every((p) => p.department === "מחלקה 1")).toBe(true);
+        expect(JSON.stringify(r)).not.toContain("לוי");
+        expect(view("6666", { status: "נ" }).people).toEqual([]);                   // מחלקה 2's person is invisible to them
+      });
+
+      it("can be combined with a requested department (both lists are returned)", () => {
+        const r = view("1111", { status: "נ", department: "מחלקה 2" });
+        expect(r.details).toHaveLength(2);
+        expect(r.people).toHaveLength(1);
+      });
+
+      it("a user without canView1 still gets nothing", () => {
+        expect(view("2222", { status: "*" })).toMatchObject({ success: false, isPermissionError: true });
+      });
+    });
+
     it("a date without data returns everything as not reported, with hasData false", () => {
       const r = view("1111", { date: "10/10/2026" });
       expect(r).toMatchObject({ success: true, hasData: false });
@@ -726,6 +885,75 @@ describe("Apps Script server", () => {
       expect(r.options.map((o) => o.name)).toEqual(["מגיע", "בבדיקה"]);
       expect(view("1111", { reportType: "x" })).toMatchObject({ success: false, error: "סוג דיווח לא מוכר" });
       expect(view("1111", { date: "2026-10-03" }).error).toContain("תאריך");
+    });
+
+    describe("without a date: the latest report of each department", () => {
+      // מחלקה 1 has 03/10 (3 reported) and 04/10 (only דוד: נ); מחלקה 2 has only 03/10 (משה: נ)
+      const latest = (code = "1111", extra = {}) => view(code, { date: "", ...extra });
+      const R1Sheet = (name) => env.spreadsheets.R1.getSheetByName(name);
+
+      it("gives every department its own newest date, and sums those reports up", () => {
+        const r = latest();
+        expect(r).toMatchObject({ success: true, hasData: true, date: "" });
+        expect(r.departments.map((d) => [d.name, d.date])).toEqual([["מחלקה 1", "04/10/2026"], ["מחלקה 2", "03/10/2026"]]);
+        expect(r.departments[0]).toMatchObject({ total: 3, reported: 1, unreported: 2, counts: { נ: 1 } });
+        expect(r.departments[1]).toMatchObject({ total: 2, reported: 1, unreported: 1, counts: { נ: 1 } });
+        expect(r.overall).toEqual({ total: 5, reported: 2, unreported: 3, counts: { נ: 2 } });
+      });
+
+      it("omitting the date field altogether means the same", () => {
+        const r = env.post({ action: "getReportView", token: env.login("1111").token, reportType: "דוח 1" });
+        expect(r.departments.map((d) => d.date)).toEqual(["04/10/2026", "03/10/2026"]);
+      });
+
+      it("picks the newest date, not the last column, and skips a newer column that has no statuses", () => {
+        const sheet = R1Sheet("מחלקה 1");
+        sheet.cells[0].push("05/10/2026", "02/10/2026");           // newer but empty, and an older column after it
+        sheet.cells[1][6] = "ב";                                    // 02/10 has a status (older than 04/10)
+        expect(latest().departments[0].date).toBe("04/10/2026");
+        sheet.cells[1][5] = "מ";                                    // now 05/10 has a status
+        expect(latest().departments[0].date).toBe("05/10/2026");
+      });
+
+      it("compares real dates (10/10 is later than 09/10, 01/11 later than 30/10)", () => {
+        const sheet = R1Sheet("מחלקה 2");
+        sheet.cells[0].push("9/10/2026", "10/10/2026", "30/10/2026", "01/11/2026");
+        for (let c = 4; c < 8; c++) sheet.set(2, c + 1, "מ");
+        expect(latest().departments[1].date).toBe("01/11/2026");
+      });
+
+      it("a department without any report has no date and everyone is not reported", () => {
+        env.spreadsheets.R1.sheets = env.spreadsheets.R1.sheets.filter((s) => s.name !== "מחלקה 2"); // soldiers only
+        const d = latest().departments.find((x) => x.name === "מחלקה 2");
+        expect(d).toEqual({ name: "מחלקה 2", date: "", total: 2, reported: 0, unreported: 2, counts: {} });
+      });
+
+      it("no report anywhere gives hasData false", () => {
+        env.spreadsheets.R1.sheets = [];
+        const r = latest();
+        expect(r).toMatchObject({ success: true, hasData: false });
+        expect(r.departments.every((d) => d.date === "")).toBe(true);
+      });
+
+      it("the personnel list of a department uses that department's own newest date", () => {
+        const r = latest("1111", { department: "מחלקה 1" });
+        expect(r.details).toEqual([
+          { firstName: "שלמה", lastName: "קליסקי", status: "", note: "" },
+          { firstName: "דוד", lastName: "כהן", status: "נ", note: "" },       // from the 04/10 column
+          { firstName: "אורח", lastName: "אחר", status: "", note: "" },
+        ]);
+      });
+
+      it("limited users only get their own departments in this mode too", () => {
+        const r = latest("6666");
+        expect(r.departments.map((d) => d.name)).toEqual(["מחלקה 1"]);
+        expect(r.overall.total).toBe(3);
+        expect(latest("6666", { department: "מחלקה 2" })).toMatchObject({ success: false, isPermissionError: true });
+      });
+
+      it("an explicit invalid date is still rejected", () => {
+        expect(latest("1111", { date: "31/02/2026" }).error).toContain("תאריך");
+      });
     });
 
     it("viewing is read-only: it never writes to the report files", () => {
