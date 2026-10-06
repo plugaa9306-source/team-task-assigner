@@ -30,7 +30,7 @@
       </div>
     </header>
 
-    <nav class="al-tabs" aria-label="ניווט ראשי">
+    <nav ref="tabsEl" class="al-tabs" aria-label="ניווט ראשי">
       <router-link v-for="t in tabs" :key="t.name" class="al-tab" :to="{ name: t.name }">
         <AppIcon :name="t.icon" :size="19" />
         <span>{{ t.label }}</span>
@@ -42,7 +42,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import AppIcon from "./AppIcon.vue";
 import { useAuth } from "../lib/auth.js";
@@ -53,6 +53,7 @@ defineProps({
 });
 
 const router = useRouter();
+const tabsEl = ref(null);
 const { logout, canReport1, canView1 } = useAuth();
 
 const tabs = computed(() => [
@@ -75,7 +76,15 @@ function onKey(e) {
     menuBtn.value?.focus();
   }
 }
+// with four tabs the row can overflow: keep the current tab visible
+async function revealActiveTab() {
+  await nextTick();
+  tabsEl.value?.querySelector(".router-link-exact-active")?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+}
+watch(tabs, revealActiveTab);
+
 onMounted(() => {
+  revealActiveTab();
   document.addEventListener("pointerdown", onOutside);
   document.addEventListener("keydown", onKey);
 });
@@ -116,12 +125,14 @@ function onLogout() {
 }
 .al-menu-item:hover, .al-menu-item:focus-visible { background: #f6dde0; outline: none; }
 
-.al-tabs { display: flex; flex: none; overflow-x: auto; background: #fff; border-bottom: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+/* the tabs scroll sideways only when they do not fit: no vertical scrolling and no scrollbar */
+.al-tabs { display: flex; flex: none; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; background: #fff; box-shadow: inset 0 -1px 0 var(--line), var(--shadow-sm); }
+.al-tabs::-webkit-scrollbar { display: none; }
 .al-tab {
   flex: 1 0 auto; min-height: 42px; padding: 0 12px;
   display: flex; align-items: center; justify-content: center; gap: 7px;
   font-size: .9rem; font-weight: 600; text-decoration: none; white-space: nowrap;
-  color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px;
+  color: var(--muted); border-bottom: 3px solid transparent;
   transition: color var(--ease), background-color var(--ease), border-color var(--ease);
 }
 .al-tab:hover { color: var(--primary); background: #f1f6f8; }

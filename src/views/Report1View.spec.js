@@ -323,12 +323,24 @@ describe("Report1View", () => {
       department: "מחלקה 1",
       date: payload.date,
       reports: [
-        { firstName: "דוד", lastName: "כהן", status: "מ" },
-        { firstName: "משה", lastName: "לוי", status: "ב" },
+        { firstName: "דוד", lastName: "כהן", status: "מ", note: "" },
+        { firstName: "משה", lastName: "לוי", status: "ב", note: "" },
       ],
     });
     expect(payload.date).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
     expect(w.find(".r1-alert").exists()).toBe(false); // no UI feedback for the sync
+    open.mockRestore();
+  });
+
+  it("sends each soldier's note (trimmed) with the report so the sheet can keep the latest one", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const w = await mountView();
+    await w.findAll(".r1-status")[0].setValue("מ");
+    await w.findAll(".r1-note-input")[0].setValue("  מגיע באיחור  ");
+    await w.findAll(".r1-status")[1].setValue("ב");               // no note typed for the second soldier
+    await w.find(".r1-wa").trigger("click");
+    const reports = syncReportInBackground.mock.calls[0][0].reports;
+    expect(reports.map((r) => [r.firstName, r.note])).toEqual([["דוד", "מגיע באיחור"], ["משה", ""]]);
     open.mockRestore();
   });
 

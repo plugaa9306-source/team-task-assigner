@@ -108,4 +108,28 @@ describe("AppLayout", () => {
     const withView = mount(AppLayout, { props: { title: "t" }, global: { plugins: [router] } });
     expect(withView.findAll(".al-tab").map((t) => t.text())).toContain("צפייה בדוח 1");
   });
+
+  it("scrolls the current tab into view when the screen opens (the tab row can overflow)", async () => {
+    const calls = [];
+    const original = Element.prototype.scrollIntoView;
+    let host;
+    // only count calls from this test's own component (other mounted layouts share the login state)
+    Element.prototype.scrollIntoView = function (opts) { if (host?.contains(this)) calls.push([this.textContent.trim(), opts]); };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "t", canReport1: true, canView1: true }));
+      hydrate();
+      const router = makeRouter();
+      router.push("/view1");
+      await router.isReady();
+      host = document.createElement("div");
+      document.body.appendChild(host);
+      const w = mount(AppLayout, { props: { title: "t" }, global: { plugins: [router] }, attachTo: host });
+      await flushPromises();
+      expect(calls).toEqual([["צפייה בדוח 1", { block: "nearest", inline: "nearest" }]]);
+      w.unmount();
+      host.remove();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
 });

@@ -96,8 +96,8 @@ describe("buildSyncPayload", () => {
       department: "מחלקה 1",
       date: "03/10/2026",
       reports: [
-        { firstName: "דוד", lastName: "כהן", status: "מ" },
-        { firstName: "משה", lastName: "לוי", status: "ב" },
+        { firstName: "דוד", lastName: "כהן", status: "מ", note: "x" },   // the note travels with the report
+        { firstName: "משה", lastName: "לוי", status: "ב", note: "" },    // an empty note is sent too (it clears the old one)
       ],
     });
   });
