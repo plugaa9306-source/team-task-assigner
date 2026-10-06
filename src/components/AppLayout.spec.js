@@ -9,7 +9,7 @@ const menuShown = (w) => !(w.find(".al-menu-list").attributes("style") ?? "").in
 const makeRouter = () =>
   createRouter({
     history: createMemoryHistory(),
-    routes: ["main", "soldiers", "report1", "login"].map((name) => ({ path: `/${name}`, name, component: stub })),
+    routes: ["main", "soldiers", "report1", "view1", "login"].map((name) => ({ path: `/${name}`, name, component: stub })),
   });
 
 async function mountAt(path, { canReport1 = false } = {}) {
@@ -94,5 +94,18 @@ describe("AppLayout", () => {
     expect(w.find(".al-titles p").text()).toBe("תת");
     const noSub = mount(AppLayout, { props: { title: "כותרת" }, global: { plugins: [router] } });
     expect(noSub.find(".al-titles p").exists()).toBe(false);
+  });
+
+  it('shows the "צפייה בדוח 1" tab only for users with canView1', async () => {
+    const { w: without } = await mountAt("/main");
+    expect(without.findAll(".al-tab").map((t) => t.text())).not.toContain("צפייה בדוח 1");
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "t", canView1: true }));
+    hydrate();
+    const router = makeRouter();
+    router.push("/main");
+    await router.isReady();
+    const withView = mount(AppLayout, { props: { title: "t" }, global: { plugins: [router] } });
+    expect(withView.findAll(".al-tab").map((t) => t.text())).toContain("צפייה בדוח 1");
   });
 });

@@ -17,7 +17,7 @@ describe("auth", () => {
     expect(auth.isAuthenticated.value).toBe(true);
     expect(auth.role.value).toBe("Viewer");
     expect(auth.canEdit.value).toBe(false);
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY))).toEqual({ token: "abc", role: "Viewer", canEdit: false, canReport1: false });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY))).toEqual({ token: "abc", role: "Viewer", canEdit: false, canReport1: false, canUpdate1: true, updateDepartments: null, canView1: false, viewDepartments: null });
   });
 
   it("returns the server error and stays logged out on failure", async () => {
@@ -96,5 +96,58 @@ describe("report options cache and auth", () => {
     expect(localStorage.getItem("team_app_missions")).toBeNull();
     expect(localStorage.getItem("team_app_roles")).toBeNull();
     vi.unstubAllGlobals();
+  });
+});
+
+describe("update access (canUpdate1 / updateDepartments)", () => {
+  beforeEach(() => { localStorage.clear(); logout(); });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("stores the allowed departments from the login reply and restores them on reload", async () => {
+    vi.stubGlobal("fetch", reply({ success: true, token: "t", role: "R", canEdit: false, canReport1: true, canUpdate1: true, updateDepartments: ["מחלקה 1"] }));
+    await login("1");
+    expect(useAuth().canUpdate1.value).toBe(true);
+    expect(useAuth().updateDepartments.value).toEqual(["מחלקה 1"]);
+    logout();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "t", canUpdate1: true, updateDepartments: ["מחלקה 2"] }));
+    hydrate();
+    expect(useAuth().updateDepartments.value).toEqual(["מחלקה 2"]);
+  });
+
+  it("canUpdate1 false is kept, and an older server (no fields) means 'all departments'", async () => {
+    vi.stubGlobal("fetch", reply({ success: true, token: "t", role: "R", canReport1: true, canUpdate1: false, updateDepartments: [] }));
+    await login("1");
+    expect(useAuth().canUpdate1.value).toBe(false);
+    logout();
+    vi.stubGlobal("fetch", reply({ success: true, token: "t", role: "R", canReport1: true }));
+    await login("1");
+    expect(useAuth().canUpdate1.value).toBe(true);
+    expect(useAuth().updateDepartments.value).toBeNull();
+  });
+});
+
+describe("view access (canView1 / viewDepartments)", () => {
+  beforeEach(() => { localStorage.clear(); logout(); });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("stores canView1 and the viewable departments from the login reply, and restores them", async () => {
+    vi.stubGlobal("fetch", reply({ success: true, token: "t", role: "R", canReport1: false, canView1: true, viewDepartments: ["מחלקה 1"] }));
+    await login("1");
+    expect(useAuth().canView1.value).toBe(true);
+    expect(useAuth().viewDepartments.value).toEqual(["מחלקה 1"]);
+    logout();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "t", canView1: true, viewDepartments: null }));
+    hydrate();
+    expect(useAuth().canView1.value).toBe(true);
+    expect(useAuth().viewDepartments.value).toBeNull();
+  });
+
+  it("no canView1 in the reply (older server or FALSE) means no access", async () => {
+    vi.stubGlobal("fetch", reply({ success: true, token: "t", role: "R", canReport1: true }));
+    await login("1");
+    expect(useAuth().canView1.value).toBe(false);
+    vi.stubGlobal("fetch", reply({ success: true, token: "t", role: "R", canView1: false, viewDepartments: [] }));
+    await login("1");
+    expect(useAuth().canView1.value).toBe(false);
   });
 });

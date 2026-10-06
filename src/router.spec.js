@@ -43,4 +43,22 @@ describe("route guard", () => {
     await router.push("/login");
     expect(router.currentRoute.value.name).toBe("main");
   });
+
+  it("blocks /view1 without canView1 and allows it with", async () => {
+    signIn();
+    let router = createAppRouter(createMemoryHistory());
+    await router.push("/view1");
+    expect(router.currentRoute.value.name).toBe("main");
+    signIn({ canView1: true });
+    router = createAppRouter(createMemoryHistory());
+    await router.push("/view1");
+    expect(router.currentRoute.value.name).toBe("view1");
+  });
+
+  it("canReport1 does not grant /view1 (separate permissions)", async () => {
+    signIn({ canReport1: true });
+    const router = createAppRouter(createMemoryHistory());
+    await router.push("/view1");
+    expect(router.currentRoute.value.name).toBe("main");
+  });
 });

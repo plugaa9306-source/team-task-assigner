@@ -236,7 +236,7 @@ watch(() => props.locked, (locked) => { if (locked) close(); });
 
 /* centred (not stretched) so the name field and the dropdown are exactly the same height */
 .pr-main { display: flex; gap: 8px; align-items: center; }
-.pr-name-wrap { flex: 1.4 1 0; min-width: 0; position: relative; }
+.pr-name-wrap { flex: 2.3 1 0; min-width: 0; position: relative; }
 .pr-name-icon { position: absolute; inset-inline-start: 10px; top: 50%; transform: translateY(-50%); display: block; color: var(--muted); pointer-events: none; }
 /* same field styling as the Report 1 selectors */
 .pr-name, .pr-role { min-height: 38px; font-size: .88rem; font-weight: 700; }
@@ -245,7 +245,8 @@ watch(() => props.locked, (locked) => { if (locked) close(); });
 /* a plain clickable trash icon: no border or background until hovered */
 .pr-remove {
   flex: none;
-  width: var(--tap);
+  width: 28px;
+  min-height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -259,7 +260,7 @@ watch(() => props.locked, (locked) => { if (locked) close(); });
 .pr-remove:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .pr-remove:disabled { opacity: .35; cursor: not-allowed; }
 
-.pr-role { flex: 1 1 0; min-width: 0; padding: 4px 8px 4px 28px; background-position: left 6px center; }
+.pr-role { flex: 1 1 0; min-width: 0; max-width: 40%; padding: 4px 8px 4px 28px; background-position: left 6px center; }
 @media (max-width: 440px) {
   .pr-name, .pr-role { font-size: .78rem; }
   .pr-name { padding-inline-end: 6px; padding-inline-start: 30px; }

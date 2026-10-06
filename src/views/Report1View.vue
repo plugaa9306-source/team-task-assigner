@@ -19,9 +19,9 @@
           </label>
           <label class="r1-field">
             <span>מחלקה</span>
-            <select v-model="unit" class="r1-unit" aria-label="בחירת מחלקה" :disabled="controlsDisabled">
-              <option value="" disabled>בחרו מחלקה…</option>
-              <option v-for="u in units" :key="u" :value="u">{{ u }}</option>
+            <select v-model="unit" class="r1-unit" :class="{ 'is-locked': onlyUnit }" aria-label="בחירת מחלקה" :disabled="controlsDisabled || noUnits || Boolean(onlyUnit)">
+              <option value="" disabled>{{ noUnits ? "אין מחלקות לעדכון" : "בחרו מחלקה…" }}</option>
+              <option v-for="u in availableUnits" :key="u" :value="u">{{ u }}</option>
             </select>
           </label>
         </section>
@@ -123,6 +123,8 @@ import { useSoldiers, unitOf } from "../lib/soldiers.js";
 import { whatsappTextUrl, whatsappChatUrl, telUrl } from "../lib/soldierUpdate.js";
 import { getReportOptions, syncReportInBackground } from "../services/api.js";
 import { statusStyle, mapHebrewColorToCss } from "../lib/statusColors.js";
+import { useAuth } from "../lib/auth.js";
+import { updatableUnits } from "../lib/departments.js";
 import { loadDraft, saveDraft } from "../lib/report1Draft.js";
 import { loadReportOptions, saveReportOptions } from "../lib/reportOptionsCache.js";
 import {
@@ -131,12 +133,23 @@ import {
 
 const { soldiersList, isLoading, error, units, load } = useSoldiers();
 
+// Only the departments this user may update are offered (canUpdate1: TRUE = all, a list = those, FALSE = none).
+const { canUpdate1, updateDepartments } = useAuth();
+const availableUnits = computed(() =>
+  updatableUnits(units.value, { canUpdate1: canUpdate1.value, updateDepartments: updateDepartments.value })
+);
+const noUnits = computed(() => !isLoading.value && !availableUnits.value.length);
+
+
 const today = todayISO();
 // Restore the last state (type, platoon, entered statuses/notes); the date always starts on today.
 const draft = loadDraft();
 const type = ref(REPORT_TYPES.some((t) => t.key === draft.type) ? draft.type : DEFAULT_TYPE);
 const date = ref(today);
 const unit = ref(draft.unit);
+// With a single allowed department there is nothing to choose: it is selected and the dropdown is locked.
+const onlyUnit = computed(() => (availableUnits.value.length === 1 ? availableUnits.value[0] : ""));
+watch(onlyUnit, (u) => { if (u) unit.value = u; }, { immediate: true });
 
 const reportType = computed(() => typeOf(type.value));
 
@@ -249,7 +262,7 @@ watch([type, unit, store], () => saveDraft({ type: type.value, unit: unit.value,
 onMounted(async () => {
   loadOptions();
   await load();
-  if (unit.value && !units.value.includes(unit.value)) unit.value = ""; // the remembered platoon no longer exists
+  if (unit.value && !availableUnits.value.includes(unit.value)) unit.value = ""; // remembered platoon no longer exists or is not allowed
 });
 </script>
 
@@ -265,6 +278,8 @@ onMounted(async () => {
 .r1-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: .72rem; font-weight: 700; color: var(--primary-dark); }
 .r1-field select { min-height: 38px; padding: 4px 8px 4px 28px; background-position: left 6px center; }
 .r1-date { min-height: 38px; width: 100%; padding: 0 10px; background: #fff; border: 1.5px solid var(--line); border-radius: 8px; }
+/* a locked single option stays readable (disabled selects are greyed by default) */
+.r1-unit.is-locked:disabled { opacity: 1; color: var(--primary-dark); -webkit-text-fill-color: var(--primary-dark); }
 .r1-date:focus-visible { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px rgba(232, 163, 23, .28); }
 /* the date and the dropdowns share one text size and weight */
 .r1-field select, .r1-date { font: inherit; font-size: .88rem; font-weight: 700; }

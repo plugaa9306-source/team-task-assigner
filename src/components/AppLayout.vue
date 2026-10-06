@@ -53,12 +53,13 @@ defineProps({
 });
 
 const router = useRouter();
-const { logout, canReport1 } = useAuth();
+const { logout, canReport1, canView1 } = useAuth();
 
 const tabs = computed(() => [
   { name: "main", label: "שיבוץ משימה", icon: "clipboard" },
   { name: "soldiers", label: "פרטי חיילים", icon: "users" },
   ...(canReport1.value ? [{ name: "report1", label: 'דיווח דו"ח 1', icon: "chart" }] : []),
+  ...(canView1.value ? [{ name: "view1", label: 'צפייה בדוח 1', icon: "eye" }] : []),
 ]);
 
 const menuOpen = ref(false);
@@ -115,9 +116,9 @@ function onLogout() {
 }
 .al-menu-item:hover, .al-menu-item:focus-visible { background: #f6dde0; outline: none; }
 
-.al-tabs { display: flex; flex: none; background: #fff; border-bottom: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+.al-tabs { display: flex; flex: none; overflow-x: auto; background: #fff; border-bottom: 1px solid var(--line); box-shadow: var(--shadow-sm); }
 .al-tab {
-  flex: 1; min-width: 0; min-height: 42px; padding: 0 8px;
+  flex: 1 0 auto; min-height: 42px; padding: 0 12px;
   display: flex; align-items: center; justify-content: center; gap: 7px;
   font-size: .9rem; font-weight: 600; text-decoration: none; white-space: nowrap;
   color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px;
