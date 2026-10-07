@@ -8,8 +8,9 @@
 //    getReportView       - צפייה בדיווחים (קריאה בלבד): דורש canView1, ובמחלקות המותרות בלבד.
 //                          בלי date: הדיווח האחרון של כל מחלקה (לכל מחלקה התאריך שלה); עם date: תאריך מסוים.
 //                          לכל חייל מוחזרת גם ההערה האחרונה (note).
-//                          עם status (קוד / '*' כולם / '__unreported' / '__other') מוחזרת גם people:
-//                          כל החיילים עם הסטטוס הזה בכל המחלקות שמותר לצפות בהן
+//                          עם withPeople: true מוחזרת גם people: כל החיילים בכל המחלקות שמותר לצפות בהן
+//                          (כך שאפשר לסנן ולמיין בצד הלקוח בלי בקשות נוספות).
+//                          עם status (קוד / '*' כולם / '__unreported' / '__other') people מסוננת לסטטוס הזה
 //
 //  הערות: שורת דיווח יכולה לכלול note. ההערה נשמרת בעמודה "הערות" שנשארת תמיד העמודה האחרונה
 //  בלשונית המחלקה (עמודת תאריך חדשה נכנסת לפניה), וערך חדש דורס את הקודם (גם ערך ריק).
@@ -866,8 +867,9 @@ function handleReportView(data, auth) {
 
   // סינון לפי סטטוס בכל המחלקות: קוד אפשרות, '*' = כולם, '__unreported' = לא דווח, '__other' = קוד שאינו אפשרות
   const statusFilter = String(data.status == null ? '' : data.status).trim();
+  const withPeople = data.withPeople === true;
   const matchesStatus = function (p) {
-    if (!statusFilter) return false;
+    if (!statusFilter) return withPeople; // withPeople בלי סינון = כולם
     if (statusFilter === '*') return true;
     if (statusFilter === '__unreported') return !p.status;
     if (statusFilter === '__other') return Boolean(p.status) && !options.some(function (o) { return o.code === p.status; });
@@ -959,7 +961,7 @@ function handleReportView(data, auth) {
     overall: overall,
     departments: departments,
     details: requested ? (details || []) : null,
-    people: statusFilter ? matchedPeople : null
+    people: statusFilter || withPeople ? matchedPeople : null
   });
 }
 

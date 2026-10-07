@@ -39,7 +39,6 @@
                 @click="toggleStatus('*')"
               >
                 <span>סה"כ</span><b>{{ data.overall.total }}</b>
-                <span v-if="loading && statusFilter === '*'" class="v1-spinner v1-spinner-chip" role="status" aria-label="טוען"></span>
               </button>
               <button
                 v-for="c in overallChips"
@@ -52,7 +51,6 @@
                 @click="toggleStatus(c.key)"
               >
                 <span>{{ c.label }}</span><b>{{ c.count }}</b>
-                <span v-if="loading && statusFilter === c.key" class="v1-spinner v1-spinner-chip" role="status" aria-label="טוען"></span>
               </button>
             </div>
           </section>
@@ -63,10 +61,7 @@
               <li v-for="d in data.departments" :key="d.name">
                 <button type="button" class="v1-dept" :class="{ 'is-selected': sameDepartment(d.name, unit) }" :aria-pressed="sameDepartment(d.name, unit)" @click="toggleDepartment(d.name)">
                   <span class="v1-dept-head">
-                    <span class="v1-dept-name">
-                      {{ d.name }}
-                      <span v-if="loading && sameDepartment(d.name, unit)" class="v1-spinner" role="status" aria-label="טוען"></span>
-                    </span>
+                    <span class="v1-dept-name">{{ d.name }}</span>
                     <span class="v1-dept-total">{{ d.total }} אנשים</span>
                   </span>
                   <span class="v1-dept-date">{{ d.date ? `נכון ל-${d.date}` : usesDate ? "אין דיווח בתאריך זה" : "אין דיווח" }}</span>
@@ -175,7 +170,7 @@ const subtitle = computed(() =>
   usesDate.value ? `הדיווח לתאריך ${formatDate(date.value)}` : "הדיווח האחרון של כל מחלקה"
 );
 watch(date, (d) => { if (!d) date.value = todayISO(); }); // a cleared picker falls back to today
-// Filter by status: tapping a status chip in the overall summary lists everyone with it (across departments);
+// Filter by status (done locally): tapping a status chip in the overall summary lists everyone with it (across departments);
 // tapping it again returns to the default view. '' = off, '*' = everyone, a status code, '__unreported' or '__other'.
 const statusFilter = ref("");
 
@@ -231,9 +226,11 @@ async function load() {
   const seq = ++requestSeq;
   loading.value = true;
   error.value = "";
+  // One request per report type and date, with everyone included: choosing a department or a status chip
+  // only filters this data on the device, with no further requests.
   const params = {
     reportType: typeOf(type.value).syncName,
-    department: unit.value,
+    withPeople: true,
   };
   // without a date the server answers with the latest report of each department
   if (usesDate.value) params.date = formatSyncDate(date.value);
@@ -256,7 +253,7 @@ watch(data, (d) => {
 
 // the status codes of the two reports differ, so a status filter does not carry over to the other report
 watch(type, () => { statusFilter.value = ""; });
-watch([type, unit, statusFilter, date], load);
+watch([type, date], load); // only a new report type or date fetches new data
 onMounted(load);
 
 // --- display helpers ---
@@ -282,7 +279,21 @@ function chipsFor(counts, unreported, includeZero) {
 }
 
 // What the table lists: everyone with the chosen status (all departments), or the selected department's people.
-const activeRows = computed(() => (statusFilter.value ? data.value?.people : data.value?.details) ?? []);
+const allPeople = computed(() => data.value?.people ?? []);
+
+function matchesStatus(p) {
+  const f = statusFilter.value;
+  if (f === "*") return true;
+  if (f === "__unreported") return !p.status;
+  if (f === "__other") return Boolean(p.status) && !optionByCode.value.has(p.status);
+  return p.status === f;
+}
+
+const activeRows = computed(() => {
+  if (statusFilter.value) return allPeople.value.filter(matchesStatus);
+  if (unit.value) return allPeople.value.filter((p) => sameDepartment(p.department, unit.value));
+  return [];
+});
 
 const filterLabel = computed(() => {
   const f = statusFilter.value;
@@ -369,7 +380,6 @@ const overallChips = computed(() => (data.value ? chipsFor(data.value.overall.co
 .v1-chip-btn:hover { background: #f1f6f8; }
 .v1-chip-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .v1-chip.is-active { background: #e8f1f4; box-shadow: 0 0 0 2px currentColor; }
-.v1-spinner-chip { margin: 0; width: 12px; height: 12px; }
 .v1-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .v1-section-head h2 { margin: 0; }
 .v1-clear { font-size: .8rem; font-weight: 700; white-space: nowrap; }

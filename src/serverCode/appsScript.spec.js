@@ -868,6 +868,36 @@ describe("Apps Script server", () => {
         expect(r.people).toHaveLength(1);
       });
 
+      it("withPeople returns everyone of every viewable department in one response (for client-side filtering)", () => {
+        const r = view("1111", { withPeople: true });
+        expect(r.people).toHaveLength(5);
+        expect(r.people.map((p) => p.department)).toEqual(["מחלקה 1", "מחלקה 1", "מחלקה 1", "מחלקה 2", "מחלקה 2"]);
+        expect(r.people.every((p) => "firstName" in p && "lastName" in p && "status" in p && "note" in p && "date" in p)).toBe(true);
+        expect(r.departments).toHaveLength(2);                                  // the summaries come in the same response
+        expect(r.overall.total).toBe(5);
+      });
+
+      it("withPeople in latest mode gives every person the date of their department's newest report", () => {
+        const r = view("1111", { date: "", withPeople: true });
+        expect(r.people.filter((p) => p.department === "מחלקה 1").every((p) => p.date === "04/10/2026")).toBe(true);
+        expect(r.people.filter((p) => p.department === "מחלקה 2").every((p) => p.date === "03/10/2026")).toBe(true);
+      });
+
+      it("withPeople for a limited user only contains their own departments", () => {
+        const r = view("6666", { withPeople: true });
+        expect(r.people).toHaveLength(3);
+        expect(JSON.stringify(r)).not.toContain("לוי");
+      });
+
+      it("withPeople plus a status still filters by that status", () => {
+        expect(view("1111", { withPeople: true, status: "נ" }).people).toHaveLength(1);
+      });
+
+      it("only the boolean true turns it on", () => {
+        expect(view("1111", { withPeople: "yes" }).people).toBeNull();
+        expect(view("1111", { withPeople: false }).people).toBeNull();
+      });
+
       it("a user without canView1 still gets nothing", () => {
         expect(view("2222", { status: "*" })).toMatchObject({ success: false, isPermissionError: true });
       });

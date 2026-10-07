@@ -12,6 +12,15 @@ const OPTIONS = [
   { name: "נפקד", code: "נ", color: "אדום" },
   { name: "במוצב", code: "מ", color: "ירוק" },
 ];
+
+// everyone of every department, as the server returns it in one response (status ב is not an option -> "אחר")
+const PEOPLE = [
+  { firstName: "דני", lastName: "כהן", status: "מ", note: "מגיע באיחור - עומס בכבישים", department: "מחלקה 1", date: "04/10/2026" },
+  { firstName: "אבי", lastName: "לוי", status: "מ", note: "", department: "מחלקה 1", date: "04/10/2026" },
+  { firstName: "בני", lastName: "אור", status: "ב", note: "", department: "מחלקה 1", date: "04/10/2026" },
+  { firstName: "משה", lastName: "גל", status: "נ", note: "", department: "מחלקה 2", date: "03/10/2026" },
+  { firstName: "יוסי", lastName: "בר", status: "", note: "", department: "מחלקה 2", date: "03/10/2026" },
+];
 const reply = (extra = {}) => ({
   success: true,
   reportType: "דוח 1",
@@ -25,6 +34,7 @@ const reply = (extra = {}) => ({
     { name: "מחלקה 2", date: "03/10/2026", total: 2, reported: 1, unreported: 1, counts: { נ: 1 } },
   ],
   details: null,
+  people: PEOPLE,
   ...extra,
 });
 
@@ -40,6 +50,16 @@ async function mountView(access = { canView1: true, viewDepartments: null }) {
   return w;
 }
 const lastCall = () => getReportView.mock.calls.at(-1)[0];
+const calls = () => getReportView.mock.calls.length;
+// a request the test can finish whenever it wants
+const pending = () => {
+  let resolve;
+  const promise = new Promise((r) => { resolve = r; });
+  getReportView.mockImplementationOnce(() => promise);
+  return resolve;
+};
+const names = (w) => w.findAll(".v1-person-name").map((n) => n.text());
+const chip = (w, label) => w.findAll(".v1-section")[0].findAll(".v1-chip").find((c) => c.text().startsWith(label));
 
 describe("ReportViewView", () => {
   beforeEach(() => {
@@ -51,37 +71,93 @@ describe("ReportViewView", () => {
     while (mounted.length) mounted.pop().unmount();
   });
 
-  it("דוח 1 (default): shows a date picker set to today and loads that date once", async () => {
-    const w = await mountView();
-    expect(w.find("h1").text()).toBe("צפייה בדוח 1");
-    expect(w.find(".v1-type").element.value).toBe("report1");
-    expect(w.find(".v1-date").exists()).toBe(true);
-    expect(w.find(".v1-date").element.value).toBe(todayISO());
-    expect(w.find(".sub").text()).toBe(`הדיווח לתאריך ${formatDate(todayISO())}`);
-    expect(getReportView).toHaveBeenCalledTimes(1);
-    expect(lastCall()).toEqual({ reportType: "דוח 1", date: TODAY, department: "" });
+  describe("opening the page", () => {
+    it("דוח 1 (default): shows a date picker set to today and loads that date once, with everyone included", async () => {
+      const w = await mountView();
+      expect(w.find("h1").text()).toBe("צפייה בדוח 1");
+      expect(w.find(".v1-type").element.value).toBe("report1");
+      expect(w.find(".v1-date").element.value).toBe(todayISO());
+      expect(w.find(".sub").text()).toBe(`הדיווח לתאריך ${formatDate(todayISO())}`);
+      expect(calls()).toBe(1);
+      expect(lastCall()).toEqual({ reportType: "דוח 1", date: TODAY, withPeople: true });
+    });
+
+    it("צפי הגעה: no date picker, the latest report of each department is requested without a date", async () => {
+      localStorage.setItem("team_app_view1_type", "arrival");
+      const w = await mountView();
+      expect(w.find(".v1-date").exists()).toBe(false);
+      expect(w.findAll(".v1-selectors .v1-field")).toHaveLength(1);
+      expect(w.find(".sub").text()).toBe("הדיווח האחרון של כל מחלקה");
+      expect(calls()).toBe(1);
+      expect(lastCall()).toEqual({ reportType: "צפי הגעה", withPeople: true });
+      expect(Object.keys(lastCall())).not.toContain("date");
+    });
+
+    it("remembers the last chosen report type in localStorage and selects it on the next visit", async () => {
+      const w = await mountView();
+      await w.find(".v1-type").setValue("arrival");
+      await flushPromises();
+      expect(localStorage.getItem("team_app_view1_type")).toBe("arrival");
+      expect(lastCall().reportType).toBe("צפי הגעה");
+      w.unmount();
+      mounted.pop();
+
+      const again = await mountView();
+      expect(again.find(".v1-type").element.value).toBe("arrival");
+      expect(lastCall().reportType).toBe("צפי הגעה");
+    });
+
+    it("ignores an invalid saved report type", async () => {
+      localStorage.setItem("team_app_view1_type", "nonsense");
+      const w = await mountView();
+      expect(w.find(".v1-type").element.value).toBe("report1");
+    });
+
+    it("has no department dropdown (the report type, plus the date for דוח 1)", async () => {
+      const w = await mountView();
+      expect(w.find(".v1-unit").exists()).toBe(false);
+      expect(w.findAll(".v1-selectors .v1-field")).toHaveLength(2);
+    });
   });
 
-  it("צפי הגעה: no date picker, the latest report of each department is requested without a date", async () => {
-    localStorage.setItem("team_app_view1_type", "arrival");
-    const w = await mountView();
-    expect(w.find(".v1-date").exists()).toBe(false);
-    expect(w.findAll(".v1-selectors .v1-field")).toHaveLength(1);
-    expect(w.find(".sub").text()).toBe("הדיווח האחרון של כל מחלקה");
-    expect(getReportView).toHaveBeenCalledTimes(1);
-    expect(lastCall()).toEqual({ reportType: "צפי הגעה", department: "" });
-    expect(Object.keys(lastCall())).not.toContain("date");
-  });
-
-  describe("the date of דוח 1", () => {
+  describe("new data is requested only for a new report type or date", () => {
     it("changing the date reloads the report for that date", async () => {
       const w = await mountView();
       await w.find(".v1-date").setValue("2026-09-01");
       await flushPromises();
-      expect(lastCall()).toEqual({ reportType: "דוח 1", date: "01/09/2026", department: "" });
+      expect(calls()).toBe(2);
+      expect(lastCall()).toEqual({ reportType: "דוח 1", date: "01/09/2026", withPeople: true });
       expect(w.find(".sub").text()).toBe("הדיווח לתאריך 01.09.2026");
       expect(w.find(".v1-note").text()).toBe("לפי הדיווח בתאריך 01/09/2026");
-      expect(getReportView).toHaveBeenCalledTimes(2);
+    });
+
+    it("changing the report type reloads, switching to צפי הגעה drops the date and switching back restores it", async () => {
+      const w = await mountView();
+      await w.find(".v1-date").setValue("2026-09-01");
+      await flushPromises();
+      await w.find(".v1-type").setValue("arrival");
+      await flushPromises();
+      expect(w.find(".v1-date").exists()).toBe(false);
+      expect(lastCall()).toEqual({ reportType: "צפי הגעה", withPeople: true });
+      await w.find(".v1-type").setValue("report1");
+      await flushPromises();
+      expect(w.find(".v1-date").element.value).toBe("2026-09-01");
+      expect(lastCall()).toEqual({ reportType: "דוח 1", date: "01/09/2026", withPeople: true });
+      expect(calls()).toBe(4);
+    });
+
+    it("choosing a department, a status chip, un-selecting and sorting never request anything", async () => {
+      const w = await mountView();
+      expect(calls()).toBe(1);
+      await w.findAll(".v1-dept")[0].trigger("click");                 // department
+      await w.findAll(".v1-th")[0].trigger("click");                   // sort
+      await w.findAll(".v1-dept")[0].trigger("click");                 // deselect
+      await chip(w, "במוצב").trigger("click");                         // status filter
+      await chip(w, "נפקד").trigger("click");                          // another status
+      await w.findAll(".v1-th")[1].trigger("click");                   // sort by department
+      await w.find(".v1-clear").trigger("click");                      // back to the default view
+      await flushPromises();
+      expect(calls()).toBe(1);
     });
 
     it("any date can be picked (past or future) and a cleared picker falls back to today", async () => {
@@ -96,44 +172,6 @@ describe("ReportViewView", () => {
       expect(lastCall().date).toBe(TODAY);
     });
 
-    it("a department with no report on that date says so, and the page explains when nothing exists for it", async () => {
-      getReportView.mockResolvedValue(reply({
-        hasData: false,
-        departments: [{ name: "מחלקה 1", date: "", total: 3, reported: 0, unreported: 3, counts: {} }, { name: "מחלקה 2", date: "", total: 2, reported: 0, unreported: 2, counts: {} }],
-      }));
-      const w = await mountView();
-      expect(w.find(".v1-nodata").text()).toBe("אין נתוני דיווח לתאריך זה.");
-      expect(w.findAll(".v1-dept-date").map((d) => d.text())).toEqual(["אין דיווח בתאריך זה", "אין דיווח בתאריך זה"]);
-    });
-
-    it("the status filter and the department list are for the chosen date", async () => {
-      const w = await mountView();
-      await w.find(".v1-date").setValue("2026-09-01");
-      await flushPromises();
-      const chip = w.findAll(".v1-section")[0].findAll(".v1-chip").find((c) => c.text().startsWith("במוצב"));
-      await chip.trigger("click");
-      await flushPromises();
-      expect(lastCall()).toEqual({ reportType: "דוח 1", date: "01/09/2026", department: "", status: "מ" });
-      await chip.trigger("click");
-      await w.findAll(".v1-dept")[1].trigger("click");
-      await flushPromises();
-      expect(lastCall()).toEqual({ reportType: "דוח 1", date: "01/09/2026", department: "מחלקה 2" });
-    });
-
-    it("switching to צפי הגעה drops the date, switching back brings the chosen date back", async () => {
-      const w = await mountView();
-      await w.find(".v1-date").setValue("2026-09-01");
-      await flushPromises();
-      await w.find(".v1-type").setValue("arrival");
-      await flushPromises();
-      expect(w.find(".v1-date").exists()).toBe(false);
-      expect(lastCall()).toEqual({ reportType: "צפי הגעה", department: "" });
-      await w.find(".v1-type").setValue("report1");
-      await flushPromises();
-      expect(w.find(".v1-date").element.value).toBe("2026-09-01");
-      expect(lastCall()).toEqual({ reportType: "דוח 1", date: "01/09/2026", department: "" });
-    });
-
     it("always opens on today (the date is not remembered)", async () => {
       const w = await mountView();
       await w.find(".v1-date").setValue("2026-09-01");
@@ -143,71 +181,65 @@ describe("ReportViewView", () => {
       const again = await mountView();
       expect(again.find(".v1-date").element.value).toBe(todayISO());
     });
-  });
 
-  it("remembers the last chosen report type in localStorage and selects it on the next visit", async () => {
-    const w = await mountView();
-    await w.find(".v1-type").setValue("arrival");
-    await flushPromises();
-    expect(localStorage.getItem("team_app_view1_type")).toBe("arrival");
-    expect(lastCall().reportType).toBe("צפי הגעה");
-    w.unmount();
+    it("keeps the selected department (and status filter) when the date changes, showing the new date's data", async () => {
+      const w = await mountView();
+      await w.findAll(".v1-dept")[1].trigger("click");                 // מחלקה 2
+      expect(names(w)).toEqual(["יוסי בר", "משה גל"]);
+      getReportView.mockResolvedValue(reply({
+        people: [{ firstName: "חדש", lastName: "מאוד", status: "נ", note: "", department: "מחלקה 2", date: "01/09/2026" }],
+      }));
+      await w.find(".v1-date").setValue("2026-09-01");
+      await flushPromises();
+      expect(names(w)).toEqual(["חדש מאוד"]);
+      expect(w.findAll(".v1-dept")[1].classes()).toContain("is-selected");
 
-    const again = await mountView();
-    expect(again.find(".v1-type").element.value).toBe("arrival");
-    expect(lastCall().reportType).toBe("צפי הגעה");
-  });
-
-  it("ignores an invalid saved report type", async () => {
-    localStorage.setItem("team_app_view1_type", "nonsense");
-    const w = await mountView();
-    expect(w.find(".v1-type").element.value).toBe("report1");
+      await chip(w, "נפקד").trigger("click");                          // status filter, then another date
+      getReportView.mockResolvedValue(reply({
+        people: [{ firstName: "אחר", lastName: "לגמרי", status: "נ", note: "", department: "מחלקה 1", date: "02/09/2026" }],
+      }));
+      await w.find(".v1-date").setValue("2026-09-02");
+      await flushPromises();
+      expect(names(w)).toEqual(["אחר לגמרי"]);
+      expect(chip(w, "נפקד").classes()).toContain("is-active");
+    });
   });
 
   describe("choosing a department", () => {
-    it("has no department dropdown (the report type, plus the date for דוח 1)", async () => {
-      const w = await mountView();
-      expect(w.find(".v1-unit").exists()).toBe(false);
-      expect(w.findAll(".v1-selectors .v1-field")).toHaveLength(2);
-    });
-
     it("global access: nothing is selected at first, the personnel list waits for a tap on a department", async () => {
       const w = await mountView({ canView1: true, viewDepartments: null });
-      expect(lastCall().department).toBe("");
       expect(w.find(".v1-table").exists()).toBe(false);
+      expect(w.find(".v1-prompt").text()).toContain("בחרו מחלקה");
     });
 
-    it("a user limited to a single department gets it selected automatically", async () => {
+    it("a user limited to a single department gets it selected automatically (no extra request)", async () => {
       const w = await mountView({ canView1: true, viewDepartments: ["מחלקה 2"] });
-      expect(lastCall().department).toBe("מחלקה 2");
-      expect(getReportView).toHaveBeenCalledTimes(1);          // no second request for the auto-selection
+      expect(names(w)).toEqual(["יוסי בר", "משה גל"]);
+      expect(calls()).toBe(1);
       expect(w.find(".v1-unit").exists()).toBe(false);
     });
 
     it("a user limited to several departments still picks one by tapping its card", async () => {
-      await mountView({ canView1: true, viewDepartments: ["מחלקה 1", "מחלקה 2"] });
-      expect(lastCall().department).toBe("");
+      const w = await mountView({ canView1: true, viewDepartments: ["מחלקה 1", "מחלקה 2"] });
+      expect(w.find(".v1-table").exists()).toBe(false);
     });
 
     it("when the server shows only one department it is selected automatically (and stays selected)", async () => {
-      const one = { name: "מחלקה 1", total: 3, reported: 3, unreported: 0, counts: { מ: 3 } };
-      const people = [{ firstName: "א", lastName: "ב", status: "מ" }];
-      getReportView.mockResolvedValueOnce(reply({ departments: [one] }));
-      getReportView.mockResolvedValue(reply({ departments: [one], department: "מחלקה 1", details: people }));
+      const one = { name: "מחלקה 1", date: "04/10/2026", total: 3, reported: 3, unreported: 0, counts: { מ: 3 } };
+      getReportView.mockResolvedValue(reply({ departments: [one], people: PEOPLE.slice(0, 3) }));
       const w = await mountView({ canView1: true, viewDepartments: null });
-      expect(lastCall().department).toBe("מחלקה 1");
-      expect(w.findAll(".v1-table tbody tr")).toHaveLength(1);
+      expect(w.findAll(".v1-table tbody tr")).toHaveLength(3);
       expect(w.find(".v1-dept").exists()).toBe(false);          // no breakdown for a single department
+      expect(calls()).toBe(1);
     });
   });
 
-  describe("summary and details", () => {
+  describe("summary and department cards", () => {
     it("shows the overall summary with colored status chips, including zeros and not-reported", async () => {
       const w = await mountView();
       const chips = w.findAll(".v1-section")[0].findAll(".v1-chip").map((c) => c.text());
       expect(chips).toEqual(['סה"כ5', "שוחרר0", "נפקד1", "במוצב2", "אחר1", "לא דווח1"]);
-      const redChip = w.findAll(".v1-section")[0].findAll(".v1-chip")[2];
-      expect(redChip.attributes("style")).toContain("rgb(153, 27, 27)"); // אדום text
+      expect(w.findAll(".v1-section")[0].findAll(".v1-chip")[2].attributes("style")).toContain("rgb(153, 27, 27)"); // אדום text
     });
 
     it("shows a breakdown per department (only non-zero chips)", async () => {
@@ -233,16 +265,20 @@ describe("ReportViewView", () => {
       expect(w.find(".v1-note").text()).toBe("לפי הדיווח האחרון של כל מחלקה");
     });
 
-    it("shows the selected department's date next to the personnel heading", async () => {
+    it("דוח 1: a department with no report on the date says so, and the page explains when nothing exists", async () => {
+      getReportView.mockResolvedValue(reply({
+        hasData: false,
+        departments: [{ name: "מחלקה 1", date: "", total: 3, reported: 0, unreported: 3, counts: {} }, { name: "מחלקה 2", date: "", total: 2, reported: 0, unreported: 2, counts: {} }],
+      }));
       const w = await mountView();
-      getReportView.mockResolvedValue(reply({ department: "מחלקה 2", details: [{ firstName: "משה", lastName: "לוי", status: "נ" }] }));
-      await w.findAll(".v1-dept")[1].trigger("click");
-      await flushPromises();
-      expect(w.find(".v1-h2-date").text()).toBe("נכון ל-03/10/2026");
-      getReportView.mockResolvedValue(reply({ department: "מחלקה 1", details: [{ firstName: "משה", lastName: "לוי", status: "נ" }] }));
-      await w.findAll(".v1-dept")[0].trigger("click");
-      await flushPromises();
-      expect(w.find(".v1-h2-date").text()).toBe("נכון ל-04/10/2026");
+      expect(w.find(".v1-nodata").text()).toBe("אין נתוני דיווח לתאריך זה.");
+      expect(w.findAll(".v1-dept-date").map((d) => d.text())).toEqual(["אין דיווח בתאריך זה", "אין דיווח בתאריך זה"]);
+    });
+
+    it("hides the breakdown when only one department is visible", async () => {
+      getReportView.mockResolvedValue(reply({ departments: [{ name: "מחלקה 1", date: "", total: 3, reported: 3, unreported: 0, counts: { מ: 3 } }] }));
+      const w = await mountView({ canView1: true, viewDepartments: ["מחלקה 1"] });
+      expect(w.find(".v1-dept").exists()).toBe(false);
     });
 
     it("hides the personnel list and prompts for a department until one is selected", async () => {
@@ -251,154 +287,130 @@ describe("ReportViewView", () => {
       expect(w.find(".v1-prompt").text()).toContain("בחרו מחלקה");
     });
 
-    it("tapping a department card requests and shows its personnel; tapping it again deselects it", async () => {
-      const people = [
-        { firstName: "משה", lastName: "לוי", status: "נ" },
-        { firstName: "יוסי", lastName: "בר", status: "" },
-        { firstName: "דני", lastName: "כהן", status: "ב" },
-      ];
+    it("tapping a department card lists its people from the loaded data; tapping again deselects it", async () => {
       const w = await mountView();
-      getReportView.mockResolvedValue(reply({ department: "מחלקה 2", details: people }));
       await w.findAll(".v1-dept")[1].trigger("click");
-      await flushPromises();
-      expect(lastCall().department).toBe("מחלקה 2");
+      expect(calls()).toBe(1);
       expect(w.find(".v1-prompt").exists()).toBe(false);
       const rows = w.findAll(".v1-table tbody tr").map((r) => [r.find(".v1-person-name").text(), r.find(".v1-status").text()]);
-      // sorted by name by default (the server sent them in a different order); unknown code shown as-is
-      expect(rows).toEqual([["דני כהן", "ב"], ["יוסי בר", "לא דווח"], ["משה לוי", "נפקד"]]);
+      expect(rows).toEqual([["יוסי בר", "לא דווח"], ["משה גל", "נפקד"]]);
       expect(w.findAll(".v1-dept")[1].classes()).toContain("is-selected");
       expect(w.findAll(".v1-dept")[1].attributes("aria-pressed")).toBe("true");
+      expect(w.find(".v1-h2-date").text()).toBe("נכון ל-03/10/2026");
 
-      await w.findAll(".v1-dept")[0].trigger("click");            // another card switches the selection
-      await flushPromises();
-      expect(lastCall().department).toBe("מחלקה 1");
+      await w.findAll(".v1-dept")[0].trigger("click");                // another card switches the selection
+      expect(names(w)).toEqual(["אבי לוי", "בני אור", "דני כהן"]);
+      expect(w.find(".v1-h2-date").text()).toBe("נכון ל-04/10/2026");
+      expect(w.findAll(".v1-person-name").length).toBe(3);
 
-      getReportView.mockResolvedValue(reply());
-      await w.findAll(".v1-dept")[0].trigger("click");            // same card again deselects
-      await flushPromises();
-      expect(lastCall().department).toBe("");
+      await w.findAll(".v1-dept")[0].trigger("click");                // the same card again deselects
       expect(w.find(".v1-table").exists()).toBe(false);
       expect(w.find(".v1-prompt").exists()).toBe(true);
+      expect(calls()).toBe(1);
     });
 
-    describe("the personnel table and its sorting", () => {
-      const people = [
-        { firstName: "יוסי", lastName: "בר", status: "", note: "" },          // not reported
-        { firstName: "דני", lastName: "כהן", status: "מ", note: "מגיע באיחור - עומס בכבישים" },
-        { firstName: "אבי", lastName: "לוי", status: "ש" },
-        { firstName: "משה", lastName: "גל", status: "נ" },
-        { firstName: "חיים", lastName: "רז", status: "ב" },         // code that is not an option -> after the known ones
-        { firstName: "בני", lastName: "אור", status: "מ" },
-      ];
-      const names = (w) => w.findAll(".v1-person-name").map((n) => n.text());
-      const open = async () => {
-        getReportView.mockResolvedValue(reply({ department: "מחלקה 2", details: people }));
-        return mountView({ canView1: true, viewDepartments: ["מחלקה 2"] });
-      };
-      const header = (w, key) => w.findAll(".v1-th")[key === "name" ? 0 : 1];
-      const NAME_ASC = ["אבי לוי", "בני אור", "דני כהן", "חיים רז", "יוסי בר", "משה גל"];
-
-      it("is a table with a row number, name, status and comments column", async () => {
-        const w = await open();
-        expect(w.find("table.v1-table").exists()).toBe(true);
-        expect(w.findAll("thead th").map((h) => h.text().replace(/[▲▼]/g, ""))).toEqual(["#", "שם", "סטטוס", "הערות"]);
-        expect(w.findAll("tbody .v1-col-num").map((c) => c.text())).toEqual(["1", "2", "3", "4", "5", "6"]);
-        const first = w.findAll("tbody tr")[0];
-        expect(first.find(".v1-status").text()).toBe("שוחרר");
-        expect(first.find(".v1-status").attributes("style")).toContain("rgb(55, 65, 81)"); // אפור text
-      });
-
-      it("shows each person's comment in the last column (empty when there is none), and it follows the sorting", async () => {
-        const w = await open();
-        const noteOf = (name) => w.findAll("tbody tr").find((r) => r.find(".v1-person-name").text() === name).find("td.v1-col-note").text();
-        expect(noteOf("דני כהן")).toBe("מגיע באיחור - עומס בכבישים");
-        expect(noteOf("יוסי בר")).toBe("");
-        expect(noteOf("משה גל")).toBe("");                                  // a person without a note field at all
-        const cells = w.findAll("tbody tr")[0].findAll("td");
-        expect(cells[cells.length - 1].classes()).toContain("v1-col-note");  // last column
-        await header(w, "name").trigger("click");                           // descending: the comment stays with its person
-        expect(noteOf("דני כהן")).toBe("מגיע באיחור - עומס בכבישים");
-        expect(w.findAll("thead th")[3].find("button").exists()).toBe(false); // the comments column is not sortable
-      });
-
-      it("sorts by name ascending by default", async () => {
-        const w = await open();
-        expect(names(w)).toEqual(NAME_ASC);
-        expect(w.findAll("thead th")[1].attributes("aria-sort")).toBe("ascending");
-        expect(w.findAll("thead th")[2].attributes("aria-sort")).toBe("none");
-        expect(header(w, "name").text()).toContain("▲");
-      });
-
-      it("tapping the name header again reverses the order", async () => {
-        const w = await open();
-        await header(w, "name").trigger("click");
-        expect(names(w)).toEqual([...NAME_ASC].reverse());
-        expect(w.findAll("thead th")[1].attributes("aria-sort")).toBe("descending");
-        expect(header(w, "name").text()).toContain("▼");
-      });
-
-      it("sorts by status in the option order (שוחרר, נפקד, במוצב), unknown codes next and not reported last", async () => {
-        const w = await open();
-        await header(w, "status").trigger("click");
-        expect(names(w)).toEqual(["אבי לוי", "משה גל", "בני אור", "דני כהן", "חיים רז", "יוסי בר"]); // ties by name
-        expect(w.findAll("thead th")[2].attributes("aria-sort")).toBe("ascending");
-        expect(w.findAll("thead th")[1].attributes("aria-sort")).toBe("none");
-      });
-
-      it("status descending shows the not-reported people first", async () => {
-        const w = await open();
-        await header(w, "status").trigger("click");
-        await header(w, "status").trigger("click");
-        expect(names(w)[0]).toBe("יוסי בר");
-        expect(names(w).slice(-1)).toEqual(["אבי לוי"]);
-      });
-
-      it("remembers the sort in localStorage and ignores an invalid saved value", async () => {
-        const w = await open();
-        await header(w, "status").trigger("click");
-        await header(w, "status").trigger("click");
-        expect(JSON.parse(localStorage.getItem("team_app_view1_sort"))).toEqual({ key: "status", dir: "desc" });
-        w.unmount();
-        mounted.pop();
-        const again = await open();
-        expect(again.findAll("thead th")[2].attributes("aria-sort")).toBe("descending");
-        again.unmount();
-        mounted.pop();
-        localStorage.setItem("team_app_view1_sort", "nonsense");
-        const bad = await open();
-        expect(names(bad)).toEqual(NAME_ASC);
-      });
-
-      it("shows no table without a department", async () => {
-        const w = await mountView();
-        expect(w.find(".v1-table").exists()).toBe(false);
-      });
+    it("an unknown status code is shown as it is", async () => {
+      const w = await mountView();
+      await w.findAll(".v1-dept")[0].trigger("click");
+      const row = w.findAll(".v1-table tbody tr").find((r) => r.find(".v1-person-name").text() === "בני אור");
+      expect(row.find(".v1-status").text()).toBe("ב");
     });
 
-    it("says so when the department has nobody, and when there is no report for the date", async () => {
-      getReportView.mockResolvedValue(reply({ hasData: false, department: "מחלקה 2", details: [] }));
+    it("says so when the department has nobody", async () => {
+      getReportView.mockResolvedValue(reply({ people: [] }));
       const w = await mountView({ canView1: true, viewDepartments: ["מחלקה 2"] });
-      expect(w.find(".v1-nodata").text()).toContain("אין נתוני דיווח לתאריך זה");
       expect(w.text()).toContain("אין חיילים להצגה במחלקה זו");
     });
+  });
 
-    it("hides the breakdown when only one department is visible", async () => {
-      getReportView.mockResolvedValue(reply({ departments: [{ name: "מחלקה 1", total: 3, reported: 3, unreported: 0, counts: { מ: 3 } }] }));
-      const w = await mountView({ canView1: true, viewDepartments: ["מחלקה 1"] });
-      expect(w.find(".v1-dept").exists()).toBe(false);
+  describe("the personnel table and its sorting", () => {
+    const people = [
+      { firstName: "יוסי", lastName: "בר", status: "", note: "", department: "מחלקה 2", date: "" },            // not reported
+      { firstName: "דני", lastName: "כהן", status: "מ", note: "מגיע באיחור - עומס בכבישים", department: "מחלקה 2", date: "" },
+      { firstName: "אבי", lastName: "לוי", status: "ש", note: "", department: "מחלקה 2", date: "" },
+      { firstName: "משה", lastName: "גל", status: "נ", note: "", department: "מחלקה 2", date: "" },
+      { firstName: "חיים", lastName: "רז", status: "ב", note: "", department: "מחלקה 2", date: "" },            // not an option -> after the known ones
+      { firstName: "בני", lastName: "אור", status: "מ", note: "", department: "מחלקה 2", date: "" },
+      { firstName: "זר", lastName: "מחלקה", status: "ש", note: "", department: "מחלקה אחרת", date: "" },       // never listed here
+    ];
+    const open = async () => {
+      getReportView.mockResolvedValue(reply({
+        departments: [{ name: "מחלקה 2", date: "03/10/2026", total: 6, reported: 5, unreported: 1, counts: { מ: 2, ש: 1, נ: 1, ב: 1 } }],
+        people,
+      }));
+      return mountView({ canView1: true, viewDepartments: ["מחלקה 2"] });
+    };
+    const header = (w, key) => w.findAll(".v1-th")[key === "name" ? 0 : 1];
+    const NAME_ASC = ["אבי לוי", "בני אור", "דני כהן", "חיים רז", "יוסי בר", "משה גל"];
+
+    it("is a table with a row number, name, status and comments column, listing only that department", async () => {
+      const w = await open();
+      expect(w.find("table.v1-table").exists()).toBe(true);
+      expect(w.findAll("thead th").map((h) => h.text().replace(/[▲▼]/g, ""))).toEqual(["#", "שם", "סטטוס", "הערות"]);
+      expect(w.findAll("tbody .v1-col-num").map((c) => c.text())).toEqual(["1", "2", "3", "4", "5", "6"]);
+      expect(names(w)).not.toContain("זר מחלקה");
+      const first = w.findAll("tbody tr")[0];
+      expect(first.find(".v1-status").text()).toBe("שוחרר");
+      expect(first.find(".v1-status").attributes("style")).toContain("rgb(55, 65, 81)"); // אפור text
+    });
+
+    it("shows each person's comment in the last column (empty when there is none), and it follows the sorting", async () => {
+      const w = await open();
+      const noteOf = (name) => w.findAll("tbody tr").find((r) => r.find(".v1-person-name").text() === name).find("td.v1-col-note").text();
+      expect(noteOf("דני כהן")).toBe("מגיע באיחור - עומס בכבישים");
+      expect(noteOf("יוסי בר")).toBe("");
+      const cells = w.findAll("tbody tr")[0].findAll("td");
+      expect(cells[cells.length - 1].classes()).toContain("v1-col-note");
+      await header(w, "name").trigger("click");                           // descending: the comment stays with its person
+      expect(noteOf("דני כהן")).toBe("מגיע באיחור - עומס בכבישים");
+      expect(w.findAll("thead th")[3].find("button").exists()).toBe(false); // the comments column is not sortable
+    });
+
+    it("sorts by name ascending by default, and tapping the header again reverses it", async () => {
+      const w = await open();
+      expect(names(w)).toEqual(NAME_ASC);
+      expect(w.findAll("thead th")[1].attributes("aria-sort")).toBe("ascending");
+      expect(w.findAll("thead th")[2].attributes("aria-sort")).toBe("none");
+      expect(header(w, "name").text()).toContain("▲");
+      await header(w, "name").trigger("click");
+      expect(names(w)).toEqual([...NAME_ASC].reverse());
+      expect(w.findAll("thead th")[1].attributes("aria-sort")).toBe("descending");
+      expect(header(w, "name").text()).toContain("▼");
+    });
+
+    it("sorts by status in the option order (שוחרר, נפקד, במוצב), unknown codes next and not reported last", async () => {
+      const w = await open();
+      await header(w, "status").trigger("click");
+      expect(names(w)).toEqual(["אבי לוי", "משה גל", "בני אור", "דני כהן", "חיים רז", "יוסי בר"]); // ties by name
+      expect(w.findAll("thead th")[2].attributes("aria-sort")).toBe("ascending");
+    });
+
+    it("status descending shows the not-reported people first", async () => {
+      const w = await open();
+      await header(w, "status").trigger("click");
+      await header(w, "status").trigger("click");
+      expect(names(w)[0]).toBe("יוסי בר");
+      expect(names(w).slice(-1)).toEqual(["אבי לוי"]);
+    });
+
+    it("remembers the sort in localStorage and ignores an invalid saved value", async () => {
+      const w = await open();
+      await header(w, "status").trigger("click");
+      await header(w, "status").trigger("click");
+      expect(JSON.parse(localStorage.getItem("team_app_view1_sort"))).toEqual({ key: "status", dir: "desc" });
+      w.unmount();
+      mounted.pop();
+      const again = await open();
+      expect(again.findAll("thead th")[2].attributes("aria-sort")).toBe("descending");
+      again.unmount();
+      mounted.pop();
+      localStorage.setItem("team_app_view1_sort", "nonsense");
+      const bad = await open();
+      expect(names(bad)).toEqual(NAME_ASC);
     });
   });
 
   describe("filtering by status (tap a chip in the overall summary)", () => {
-    const PEOPLE = [
-      { firstName: "דני", lastName: "כהן", status: "מ", note: "מגיע באיחור", department: "מחלקה 2", date: "03/10/2026" },
-      { firstName: "אבי", lastName: "לוי", status: "מ", note: "", department: "מחלקה 1", date: "04/10/2026" },
-      { firstName: "בני", lastName: "אור", status: "מ", note: "", department: "מחלקה 1", date: "04/10/2026" },
-    ];
-    const chip = (w, label) => w.findAll(".v1-section")[0].findAll(".v1-chip").find((c) => c.text().startsWith(label));
-    const filtered = (people = PEOPLE, status = "מ") => reply({ people });
-    const names = (w) => w.findAll(".v1-person-name").map((n) => n.text());
-
     it("the summary chips are toggle buttons, none selected at first", async () => {
       const w = await mountView();
       const chips = w.findAll(".v1-section")[0].findAll(".v1-chip");
@@ -406,34 +418,47 @@ describe("ReportViewView", () => {
       expect(chips.every((c) => c.element.tagName === "BUTTON" && c.attributes("aria-pressed") === "false")).toBe(true);
     });
 
-    it("tapping a status asks for that status, hides 'לפי מחלקה' and lists the people of all departments", async () => {
+    it("tapping a status hides 'לפי מחלקה' and lists the people of all departments, from the loaded data", async () => {
       const w = await mountView();
-      getReportView.mockResolvedValue(filtered());
       await chip(w, "במוצב").trigger("click");
-      await flushPromises();
-      expect(lastCall()).toEqual({ reportType: "דוח 1", date: TODAY, department: "", status: "מ" });
+      expect(calls()).toBe(1);                                                       // no new request
       expect(w.find(".v1-dept").exists()).toBe(false);                               // the department breakdown is hidden
       expect(w.find('[aria-label="לפי מחלקה"]').exists()).toBe(false);
       expect(chip(w, "במוצב").classes()).toContain("is-active");
       expect(chip(w, "במוצב").attributes("aria-pressed")).toBe("true");
       expect(w.find(".v1-section-head h2").text()).toContain("במוצב");
-      expect(w.find(".v1-section-head h2").text()).toContain("3 חיילים");
+      expect(w.find(".v1-section-head h2").text()).toContain("2 חיילים");
       // a department column appears, and every row names its department
       expect(w.findAll("thead th").map((h) => h.text().replace(/[▲▼]/g, ""))).toEqual(["#", "שם", "מחלקה", "סטטוס", "הערות"]);
-      expect(names(w)).toEqual(["אבי לוי", "בני אור", "דני כהן"]);
-      expect(w.findAll(".v1-col-dept").map((c) => c.text())).toEqual(["מחלקה 1", "מחלקה 1", "מחלקה 2"]);
-      expect(w.findAll("td.v1-col-note").map((c) => c.text())).toEqual(["", "", "מגיע באיחור"]);
+      expect(names(w)).toEqual(["אבי לוי", "דני כהן"]);
+      expect(w.findAll(".v1-col-dept").map((c) => c.text())).toEqual(["מחלקה 1", "מחלקה 1"]);
+      expect(w.findAll("td.v1-col-note").map((c) => c.text())).toEqual(["", "מגיע באיחור - עומס בכבישים"]);
+    });
+
+    it("people from several departments are listed together", async () => {
+      const w = await mountView();
+      await chip(w, 'סה"כ').trigger("click");
+      expect(w.find(".v1-section-head h2").text()).toContain("כל החיילים");
+      expect(names(w)).toEqual(["אבי לוי", "בני אור", "דני כהן", "יוסי בר", "משה גל"]);
+      expect(w.findAll(".v1-col-dept").map((c) => c.text())).toEqual(["מחלקה 1", "מחלקה 1", "מחלקה 1", "מחלקה 2", "מחלקה 2"]);
+    });
+
+    it("'לא דווח' lists the unreported and 'אחר' the unknown codes; 'נפקד' works across departments", async () => {
+      const w = await mountView();
+      await chip(w, "לא דווח").trigger("click");
+      expect(names(w)).toEqual(["יוסי בר"]);
+      expect(w.find(".v1-section-head h2").text()).toContain("לא דווח");
+      await chip(w, "אחר").trigger("click");
+      expect(names(w)).toEqual(["בני אור"]);
+      await chip(w, "נפקד").trigger("click");
+      expect(names(w)).toEqual(["משה גל"]);
+      expect(w.findAll(".v1-col-dept").map((c) => c.text())).toEqual(["מחלקה 2"]);
     });
 
     it("tapping the same chip again goes back to the default view", async () => {
       const w = await mountView();
-      getReportView.mockResolvedValue(filtered());
       await chip(w, "במוצב").trigger("click");
-      await flushPromises();
-      getReportView.mockResolvedValue(reply());
       await chip(w, "במוצב").trigger("click");
-      await flushPromises();
-      expect(Object.keys(lastCall())).not.toContain("status");
       expect(w.findAll(".v1-dept")).toHaveLength(2);                                 // 'לפי מחלקה' is back
       expect(w.find(".v1-table").exists()).toBe(false);
       expect(w.find(".v1-prompt").exists()).toBe(true);
@@ -442,143 +467,74 @@ describe("ReportViewView", () => {
 
     it("the 'הצג לפי מחלקה' link also returns to the default view", async () => {
       const w = await mountView();
-      getReportView.mockResolvedValue(filtered());
       await chip(w, "במוצב").trigger("click");
-      await flushPromises();
-      getReportView.mockResolvedValue(reply());
       await w.find(".v1-clear").trigger("click");
-      await flushPromises();
       expect(w.findAll(".v1-dept")).toHaveLength(2);
       expect(w.find(".v1-clear").exists()).toBe(false);
     });
 
     it("tapping another chip switches the filter", async () => {
       const w = await mountView();
-      getReportView.mockResolvedValue(filtered());
       await chip(w, "במוצב").trigger("click");
-      await flushPromises();
       await chip(w, "נפקד").trigger("click");
-      await flushPromises();
-      expect(lastCall().status).toBe("נ");
       expect(chip(w, "נפקד").classes()).toContain("is-active");
       expect(chip(w, "במוצב").classes()).not.toContain("is-active");
     });
 
-    it("סה\"כ lists everyone, 'לא דווח' the unreported, 'אחר' the unknown codes", async () => {
-      const w = await mountView();
-      getReportView.mockResolvedValue(filtered([]));
-      await chip(w, 'סה"כ').trigger("click");
-      await flushPromises();
-      expect(lastCall().status).toBe("*");
-      expect(w.find(".v1-section-head h2").text()).toContain("כל החיילים");
-      await chip(w, 'סה"כ').trigger("click");
-      await chip(w, "לא דווח").trigger("click");
-      await flushPromises();
-      expect(lastCall().status).toBe("__unreported");
-      expect(w.find(".v1-section-head h2").text()).toContain("לא דווח");
-      await chip(w, "לא דווח").trigger("click");
-      await chip(w, "אחר").trigger("click");
-      await flushPromises();
-      expect(lastCall().status).toBe("__other");
-    });
-
     it("says so when nobody has that status", async () => {
       const w = await mountView();
-      getReportView.mockResolvedValue(filtered([]));
       await chip(w, "שוחרר").trigger("click");
-      await flushPromises();
       expect(w.text()).toContain("אין חיילים בסטטוס זה.");
     });
 
     it("selecting a status clears a selected department, and un-selecting does not bring it back", async () => {
       const w = await mountView();
-      getReportView.mockResolvedValue(reply({ department: "מחלקה 2", details: [{ firstName: "א", lastName: "ב", status: "מ", note: "" }] }));
       await w.findAll(".v1-dept")[1].trigger("click");
-      await flushPromises();
-      expect(lastCall().department).toBe("מחלקה 2");
-      getReportView.mockResolvedValue(filtered());
+      expect(names(w)).toEqual(["יוסי בר", "משה גל"]);
       await chip(w, "במוצב").trigger("click");
-      await flushPromises();
-      expect(lastCall()).toEqual({ reportType: "דוח 1", date: TODAY, department: "", status: "מ" });   // one request, no department
-      getReportView.mockResolvedValue(reply());
+      expect(names(w)).toEqual(["אבי לוי", "דני כהן"]);                                // the status list replaced the department list
       await chip(w, "במוצב").trigger("click");
-      await flushPromises();
-      expect(lastCall().department).toBe("");
       expect(w.find(".v1-prompt").exists()).toBe(true);
+      expect(w.find(".v1-table").exists()).toBe(false);
     });
 
     it("a user limited to one department gets that department back after clearing the filter", async () => {
-      getReportView.mockResolvedValue(reply({ department: "מחלקה 2", details: [] }));
       const w = await mountView({ canView1: true, viewDepartments: ["מחלקה 2"] });
-      expect(lastCall().department).toBe("מחלקה 2");
-      getReportView.mockResolvedValue(filtered());
-      await chip(w, "במוצב").trigger("click");
-      await flushPromises();
-      expect(lastCall()).toEqual({ reportType: "דוח 1", date: TODAY, department: "", status: "מ" });
-      await chip(w, "במוצב").trigger("click");
-      await flushPromises();
-      expect(lastCall()).toEqual({ reportType: "דוח 1", date: TODAY, department: "מחלקה 2" });
+      expect(names(w)).toEqual(["יוסי בר", "משה גל"]);
+      await chip(w, "נפקד").trigger("click");
+      expect(names(w)).toEqual(["משה גל"]);
+      await chip(w, "נפקד").trigger("click");
+      expect(names(w)).toEqual(["יוסי בר", "משה גל"]);
+      expect(calls()).toBe(1);
     });
 
     it("switching the report type drops the status filter (the codes differ between reports)", async () => {
       const w = await mountView();
-      getReportView.mockResolvedValue(filtered());
       await chip(w, "במוצב").trigger("click");
-      await flushPromises();
-      getReportView.mockResolvedValue(reply());
       await w.find(".v1-type").setValue("arrival");
       await flushPromises();
-      expect(lastCall()).toEqual({ reportType: "צפי הגעה", department: "" });
       expect(w.findAll(".v1-dept")).toHaveLength(2);
+      expect(w.find(".v1-clear").exists()).toBe(false);
     });
 
-    it("can be sorted by department (the extra column), and that sort falls back to name in the department view", async () => {
+    it("can be sorted by department (the extra column); outside the filter that sort falls back to name", async () => {
       const w = await mountView();
-      getReportView.mockResolvedValue(filtered());
-      await chip(w, "במוצב").trigger("click");
-      await flushPromises();
-      await w.findAll(".v1-th")[1].trigger("click");                                 // 'מחלקה' header
-      expect(w.findAll(".v1-col-dept").map((c) => c.text())).toEqual(["מחלקה 1", "מחלקה 1", "מחלקה 2"]);
-      expect(names(w)).toEqual(["אבי לוי", "בני אור", "דני כהן"]);                    // ties by name
+      await chip(w, 'סה"כ').trigger("click");
+      await w.findAll(".v1-th")[1].trigger("click");                                 // 'מחלקה' header, ascending
+      expect(w.findAll(".v1-col-dept").map((c) => c.text())).toEqual(["מחלקה 1", "מחלקה 1", "מחלקה 1", "מחלקה 2", "מחלקה 2"]);
+      expect(names(w)).toEqual(["אבי לוי", "בני אור", "דני כהן", "יוסי בר", "משה גל"]);   // ties by name
       await w.findAll(".v1-th")[1].trigger("click");                                 // reverse
-      expect(w.findAll(".v1-col-dept").map((c) => c.text())).toEqual(["מחלקה 2", "מחלקה 1", "מחלקה 1"]);
-      // back in the default view the department sort does not apply: the table (department view) sorts by name
-      getReportView.mockResolvedValue(reply({ department: "מחלקה 2", details: [{ firstName: "תמר", lastName: "ג", status: "נ", note: "" }, { firstName: "אבי", lastName: "ד", status: "נ", note: "" }] }));
-      await chip(w, "במוצב").trigger("click");
+      expect(w.findAll(".v1-col-dept").map((c) => c.text())).toEqual(["מחלקה 2", "מחלקה 2", "מחלקה 1", "מחלקה 1", "מחלקה 1"]);
+      // back in the department view the department sort does not exist: default name ascending
+      await chip(w, 'סה"כ').trigger("click");
       await w.findAll(".v1-dept")[1].trigger("click");
-      await flushPromises();
       expect(w.findAll("thead th").map((h) => h.text().replace(/[▲▼]/g, ""))).toEqual(["#", "שם", "סטטוס", "הערות"]);
-      expect(names(w)).toEqual(["אבי ד", "תמר ג"]);
-    });
-
-    it("shows loading on the tapped chip, in the list area and in the progress bar", async () => {
-      const w = await mountView();
-      let finish;
-      getReportView.mockImplementationOnce(() => new Promise((r) => { finish = r; }));
-      await chip(w, "במוצב").trigger("click");
-      await flushPromises();
-      expect(w.find(".v1-progress").exists()).toBe(true);
-      expect(chip(w, "במוצב").find(".v1-spinner").exists()).toBe(true);
-      expect(chip(w, "נפקד").find(".v1-spinner").exists()).toBe(false);
-      expect(w.find(".v1-loading").exists()).toBe(true);
-      expect(w.find(".v1-table").exists()).toBe(false);
-      finish(filtered());
-      await flushPromises();
-      expect(w.find(".v1-progress").exists()).toBe(false);
-      expect(chip(w, "במוצב").find(".v1-spinner").exists()).toBe(false);
-      expect(w.findAll(".v1-table tbody tr")).toHaveLength(3);
+      expect(names(w)).toEqual(["יוסי בר", "משה גל"]);
+      expect(w.findAll("thead th")[1].attributes("aria-sort")).toBe("ascending");
     });
   });
 
-  describe("loading indication", () => {
-    // a request the test can finish whenever it wants
-    const pending = () => {
-      let resolve;
-      const promise = new Promise((r) => { resolve = r; });
-      getReportView.mockImplementationOnce(() => promise);
-      return resolve;
-    };
-
+  describe("loading indication (only while a report type or date is being loaded)", () => {
     it("shows a progress bar while the first load runs and removes it afterwards", async () => {
       const finish = pending();
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ token: "t", canView1: true, viewDepartments: null }));
@@ -593,26 +549,33 @@ describe("ReportViewView", () => {
       expect(w.find(".v1-progress").exists()).toBe(false);
     });
 
-    it("tapping a department card shows loading on the card, in the list area and in the progress bar", async () => {
+    it("tapping a department or a status chip is instant: no loading indication at all", async () => {
       const w = await mountView();
-      expect(w.find(".v1-progress").exists()).toBe(false);
-      const finish = pending();
       await w.findAll(".v1-dept")[1].trigger("click");
-      await flushPromises();
-      // while the request is open
-      expect(w.find(".v1-progress").exists()).toBe(true);
-      expect(w.findAll(".v1-dept")[1].find(".v1-spinner").exists()).toBe(true);   // the tapped card
-      expect(w.findAll(".v1-dept")[0].find(".v1-spinner").exists()).toBe(false);  // not the others
-      expect(w.find(".v1-loading").text()).toContain("טוען את רשימת החיילים");
-      expect(w.find(".v1-table").exists()).toBe(false);                            // no stale list meanwhile
-      expect(w.find(".v1-prompt").exists()).toBe(false);
-      // once it arrives
-      finish(reply({ department: "מחלקה 2", details: [{ firstName: "משה", lastName: "לוי", status: "נ", note: "" }] }));
-      await flushPromises();
       expect(w.find(".v1-progress").exists()).toBe(false);
       expect(w.find(".v1-spinner").exists()).toBe(false);
       expect(w.find(".v1-loading").exists()).toBe(false);
-      expect(w.findAll(".v1-table tbody tr")).toHaveLength(1);
+      await chip(w, "במוצב").trigger("click");
+      expect(w.find(".v1-progress").exists()).toBe(false);
+      expect(w.find(".v1-spinner").exists()).toBe(false);
+    });
+
+    it("changing the date shows the progress bar and hides the (now stale) selected list until the new data arrives", async () => {
+      const w = await mountView();
+      await w.findAll(".v1-dept")[0].trigger("click");
+      expect(w.find(".v1-table").exists()).toBe(true);
+      const finish = pending();
+      await w.find(".v1-date").setValue("2026-09-01");
+      await flushPromises();
+      expect(w.find(".v1-progress").exists()).toBe(true);
+      expect(w.find(".v1-loading").text()).toContain("טוען את רשימת החיילים");
+      expect(w.find(".v1-table").exists()).toBe(false);                              // not the old date's list
+      expect(w.findAll(".v1-dept")).toHaveLength(2);                                 // the previous summary stays on screen
+      finish(reply({ people: [{ firstName: "חדש", lastName: "מאוד", status: "מ", note: "", department: "מחלקה 1", date: "01/09/2026" }] }));
+      await flushPromises();
+      expect(w.find(".v1-progress").exists()).toBe(false);
+      expect(w.find(".v1-loading").exists()).toBe(false);
+      expect(names(w)).toEqual(["חדש מאוד"]);
     });
 
     it("changing the report type shows the progress bar while the new report loads, keeping the old data visible", async () => {
@@ -621,7 +584,7 @@ describe("ReportViewView", () => {
       await w.find(".v1-type").setValue("arrival");
       await flushPromises();
       expect(w.find(".v1-progress").exists()).toBe(true);
-      expect(w.findAll(".v1-dept")).toHaveLength(2);                               // previous summary still on screen
+      expect(w.findAll(".v1-dept")).toHaveLength(2);
       finish(reply());
       await flushPromises();
       expect(w.find(".v1-progress").exists()).toBe(false);
@@ -630,7 +593,7 @@ describe("ReportViewView", () => {
     it("the loading indication also ends when the request fails", async () => {
       const w = await mountView();
       const finish = pending();
-      await w.findAll(".v1-dept")[0].trigger("click");
+      await w.find(".v1-date").setValue("2026-09-01");
       await flushPromises();
       expect(w.find(".v1-progress").exists()).toBe(true);
       finish({ success: false, error: "שגיאה" });
