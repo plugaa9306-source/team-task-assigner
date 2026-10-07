@@ -1,7 +1,7 @@
 <template>
   <div class="team-builder">
     <div class="tb-head">
-      <h2>צוות</h2>
+      <h2><AppIcon name="users" :size="18" />צוות</h2>
       <span class="tb-count" aria-live="polite">{{ countText }}</span>
     </div>
     <div class="tb-rows">
@@ -19,13 +19,14 @@
       />
     </div>
     <div class="tb-foot">
-      <button type="button" class="tb-add" :disabled="locked" @click="addRow(true)">+ הוסף אדם נוסף</button>
+      <button type="button" class="tb-add" :disabled="locked" @click="addRow(true)"><AppIcon name="plus" :size="18" />הוסף אדם נוסף</button>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, watch, nextTick } from "vue";
+import AppIcon from "./AppIcon.vue";
 import PersonRow from "./PersonRow.vue";
 import { NO_ID, personKey } from "../lib/person.js";
 
@@ -97,18 +98,18 @@ function removeRow(key) {
   flex-direction: column;
   min-height: 0;
   flex: 1 1 auto;
-  padding: 10px 18px 14px;
+  padding: 4px 10px 14px;
 }
 
 .tb-head {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   margin-bottom: 10px;
-  padding-bottom: 8px;
+  padding-bottom: 4px;
   border-bottom: 1px solid var(--line);
 }
-.tb-head h2 { margin: 0; font-size: 1.08rem; color: var(--primary-dark); }
+.tb-head h2 { display: flex; align-items: center; gap: 7px; margin: 0 0 -8px 0; font-size: 16px; color: var(--primary-dark); }
 .tb-count {
   font-size: .8rem;
   color: var(--primary);
@@ -121,11 +122,11 @@ function removeRow(key) {
 .tb-rows {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
   overflow-y: auto;
   flex: 1 1 auto;
   min-height: 0;
-  padding: 3px 3px 6px;
+  padding: 3px 0 6px;
   overscroll-behavior: contain;
 }
 
@@ -133,6 +134,10 @@ function removeRow(key) {
 
 .tb-add {
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   border: 1.5px dashed var(--primary);
   border-radius: 999px;
   background: transparent;

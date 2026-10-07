@@ -2,12 +2,13 @@
   <div class="person-row" ref="rootEl">
     <div class="pr-main">
       <div class="pr-name-wrap">
+        <AppIcon class="pr-name-icon" name="search" :size="17" />
         <input
           ref="nameInputEl"
           type="text"
           class="pr-name"
           :class="{ 'pr-invalid': nameInvalid }"
-          placeholder="חיפוש שם פרטי או משפחה"
+          placeholder="שם פרטי או משפחה"
           autocomplete="off"
           role="combobox"
           :aria-expanded="open"
@@ -37,23 +38,9 @@
             @click="pick(p)"
           >
             <span class="pr-res-name">{{ p.firstName }} {{ p.lastName }}</span>
-            <span class="pr-res-id">{{ p.id }}</span>
           </li>
         </ul>
       </div>
-      <button
-        type="button"
-        class="pr-remove"
-        aria-label="הסר אדם"
-        :disabled="locked || !canRemove"
-        @click="$emit('remove')"
-      >
-        <svg class="pr-remove-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-          <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
-        </svg>
-      </button>
-    </div>
-    <div class="pr-second">
       <select
         ref="roleSelectEl"
         class="pr-role"
@@ -67,7 +54,15 @@
         <option value="">בחרו תפקיד…</option>
         <option v-for="r in roles" :key="r" :value="r">{{ r }}</option>
       </select>
-      <span class="pr-meta">{{ metaText }}</span>
+      <button
+        type="button"
+        class="pr-remove"
+        aria-label="הסר אדם"
+        :disabled="locked || !canRemove"
+        @click="$emit('remove')"
+      >
+        <AppIcon name="trash" :size="22" />
+      </button>
     </div>
     <p class="pr-hint" v-show="hintText">{{ hintText }}</p>
   </div>
@@ -75,6 +70,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, useId, nextTick } from "vue";
+import AppIcon from "./AppIcon.vue";
 import { NO_ID, personKey } from "../lib/person.js";
 
 const props = defineProps({
@@ -116,7 +112,6 @@ const hintText = computed(() => {
   if (roleInvalid.value) return "יש למלא תפקיד";
   return "";
 });
-const metaText = computed(() => (hasName.value ? `מ"א ${props.modelValue.id}` : ""));
 
 function focusName() {
   nameInputEl.value?.focus();
@@ -126,7 +121,7 @@ defineExpose({ focusName });
 function onInput(e) {
   nameText.value = e.target.value;
   if (props.modelValue.id !== NO_ID) {
-    emit("update:modelValue", { firstName: "", lastName: "", id: NO_ID, role: props.modelValue.role });
+    emit("update:modelValue", { firstName: "", lastName: "", id: NO_ID, phone: "", role: props.modelValue.role });
   }
   search();
 }
@@ -150,7 +145,7 @@ function search() {
 }
 
 function pick(p) {
-  emit("update:modelValue", { firstName: p.firstName, lastName: p.lastName, id: p.id, role: props.modelValue.role });
+  emit("update:modelValue", { firstName: p.firstName, lastName: p.lastName, id: p.id, phone: p.phone ?? "", role: props.modelValue.role });
   nameText.value = `${p.firstName} ${p.lastName}`;
   close();
   nextTick(() => { roleSelectEl.value?.focus(); });
@@ -230,7 +225,7 @@ watch(() => props.locked, (locked) => { if (locked) close(); });
 <style scoped>
 .person-row {
   display: block;
-  padding: 12px;
+  padding: 8px;
   background: #fff;
   border: 1.5px solid var(--line);
   border-radius: var(--radius);
@@ -239,37 +234,37 @@ watch(() => props.locked, (locked) => { if (locked) close(); });
 }
 .person-row:hover, .person-row:focus-within { border-color: var(--primary-light); }
 
-.pr-main { display: flex; gap: 8px; align-items: stretch; }
-.pr-name-wrap { flex: 1; min-width: 0; }
+/* centred (not stretched) so the name field and the dropdown are exactly the same height */
+.pr-main { display: flex; gap: 8px; align-items: center; }
+.pr-name-wrap { flex: 2.3 1 0; min-width: 0; position: relative; }
+.pr-name-icon { position: absolute; inset-inline-start: 10px; top: 50%; transform: translateY(-50%); display: block; color: var(--muted); pointer-events: none; }
+/* same field styling as the Report 1 selectors */
+.pr-name, .pr-role { min-height: 38px; font-size: .88rem; font-weight: 700; }
+.pr-name { padding-block: 4px; padding-inline-end: 8px; padding-inline-start: 34px; }
 
+/* a plain clickable trash icon: no border or background until hovered */
 .pr-remove {
   flex: none;
-  width: var(--tap);
+  width: 28px;
+  min-height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid var(--line);
+  padding: 0;
+  border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--danger);
 }
-.pr-remove:hover:not(:disabled) { background: #f6dde0; border-color: var(--danger); }
+.pr-remove:hover:not(:disabled) { background: #f6dde0; }
+.pr-remove:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .pr-remove:disabled { opacity: .35; cursor: not-allowed; }
-.pr-remove-icon { fill: none; }
 
-.pr-second {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-top: 8px;
-}
-.pr-role { flex: 1; min-width: 0; }
-
-.pr-meta {
-  flex: none;
-  font-size: .85rem;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
+.pr-role { flex: 1 1 0; min-width: 0; max-width: 40%; padding: 4px 8px 4px 28px; background-position: left 6px center; }
+@media (max-width: 440px) {
+  .pr-name, .pr-role { font-size: .78rem; }
+  .pr-name { padding-inline-end: 6px; padding-inline-start: 30px; }
+  .pr-role { padding: 4px 6px 4px 22px; background-position: left 4px center; background-size: 14px; }
 }
 
 .pr-name.pr-invalid, .pr-role.pr-invalid { border-color: var(--danger); }
@@ -304,7 +299,6 @@ watch(() => props.locked, (locked) => { if (locked) close(); });
   cursor: pointer;
 }
 .pr-res-name { font-weight: 600; }
-.pr-res-id { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
 
 @media (hover: hover) {
   .pr-results li:hover { background: #e3eef1; }

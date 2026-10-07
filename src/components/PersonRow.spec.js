@@ -66,4 +66,46 @@ describe("PersonRow", () => {
     expect(wrapper.find(".pr-role").element.disabled).toBe(true);
     expect(wrapper.find(".pr-remove").element.disabled).toBe(true);
   });
+
+  it("keeps the name search, role dropdown and remove button on one line", () => {
+    const wrapper = mount(PersonRow, { props: { people: [], roles: ["נהג"], canRemove: true } });
+    const main = wrapper.find(".pr-main");
+    expect(main.find(".pr-name-wrap").exists()).toBe(true);
+    expect(main.find("select.pr-role").exists()).toBe(true);
+    expect(main.find(".pr-remove").exists()).toBe(true);
+    expect(wrapper.find(".pr-second").exists()).toBe(false);
+  });
+
+  it("uses the placeholder 'שם פרטי או משפחה'", () => {
+    const wrapper = mount(PersonRow, { props: { people: [], roles: [] } });
+    expect(wrapper.find("input.pr-name").attributes("placeholder")).toBe("שם פרטי או משפחה");
+  });
+
+  it("does not show the personal ID line on the card after choosing a soldier", async () => {
+    const wrapper = mount(PersonRow, {
+      props: { people: [], roles: [], modelValue: { firstName: "דוד", lastName: "כהן", id: "8783079", role: "" } },
+    });
+    expect(wrapper.find(".pr-meta").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("8783079");
+  });
+
+  it("uses a clickable trash icon (no ✕) to remove a person", async () => {
+    const wrapper = mount(PersonRow, { props: { people: [], roles: [], canRemove: true } });
+    const btn = wrapper.find(".pr-remove");
+    expect(btn.attributes("aria-label")).toBe("הסר אדם");
+    expect(btn.find("svg.app-icon").exists()).toBe(true);
+    expect(btn.find(".pr-remove-icon").exists()).toBe(false);
+    await btn.trigger("click");
+    expect(wrapper.emitted("remove")).toHaveLength(1);
+  });
+
+  it("lists only names in the suggestions (no personal ID)", async () => {
+    const people = [{ id: "8408899", firstName: "ארבל", lastName: "יעקב" }];
+    const wrapper = mount(PersonRow, { props: { people, roles: [] } });
+    await wrapper.find("input.pr-name").setValue("ארבל");
+    const items = wrapper.findAll(".pr-results li");
+    expect(items).toHaveLength(1);
+    expect(items[0].text()).toBe("ארבל יעקב");
+    expect(wrapper.find(".pr-res-id").exists()).toBe(false);
+  });
 });
